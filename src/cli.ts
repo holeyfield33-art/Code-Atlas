@@ -17,6 +17,7 @@ import { generateCourse, assembleBundle } from "./generator/generator.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const viewerPath = resolve(here, "../viewer/viewer.html");
+const rendererPath = resolve(here, "../viewer/vendor/3d-force-graph.min.js");
 
 const program = new Command();
 program
@@ -76,6 +77,14 @@ program
     let viewer: string;
     try { viewer = readFileSync(viewerPath, "utf8"); }
     catch { console.error("Viewer template not found at " + viewerPath); process.exit(1); }
+    // Bundle the 3D renderer INTO the viewer (no CDN, offline, no external script
+    // execution). Escape any "</script" in the lib so it can't close the block;
+    // the function replacer keeps "$" sequences literal.
+    let renderer: string;
+    try { renderer = readFileSync(rendererPath, "utf8"); }
+    catch { console.error("Vendored renderer not found at " + rendererPath); process.exit(1); }
+    renderer = renderer.replace(/<\/script/gi, "<\\/script");
+    viewer = viewer.replace("/*__ATLAS_RENDERER__*/", () => renderer);
     // Inject the bundle as inert data inside a <script type="application/json"> block,
     // read with JSON.parse — NOT as a JS literal. Escaping "<" as < guarantees the
     // serialized source can never contain "</script" and break out of the block (F1), and

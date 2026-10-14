@@ -246,9 +246,9 @@
 <!-- The CLI injects the bundle here as inert JSON (never as executable JS), so
      repository source carried in it cannot run as script in this page. -->
 <script type="application/json" id="atlas-bundle">/*__ATLAS_BUNDLE_JSON__*/</script>
-<!-- 3D rendering library loads from a CDN; the data above is local. Offline, the
-     3D view degrades to a clear message (see DOMContentLoaded). -->
-<script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.76.0/dist/3d-force-graph.min.js" crossorigin="anonymous"></script>
+<!-- 3D rendering library (3d-force-graph 1.76.0, MIT) is bundled INTO this file by
+     the CLI — no CDN, no external script execution, works fully offline. -->
+<script>/*__ATLAS_RENDERER__*/</script>
 <script>
 /* ============================================================================
    CONFIG — product identity is NOT hardcoded into the engine.
@@ -803,7 +803,7 @@ const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 window.addEventListener("DOMContentLoaded",()=>{
   if(typeof ForceGraph3D!=="function"){
     document.getElementById("empty").hidden=false;
-    document.getElementById("empty").textContent="3D engine failed to load — the renderer (3d-force-graph) is fetched from a CDN, so this view needs a network connection. Your data is local and intact.";
+    document.getElementById("empty").textContent="3D engine did not initialize. The renderer is bundled into this file (no network needed); try reopening the viewer.";
     return;
   }
   buildFG();

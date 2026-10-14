@@ -21,6 +21,7 @@ import { redactSecrets } from "../src/scanner/redact.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const viewerTemplate = readFileSync(resolve(repoRoot, "viewer/viewer.html"), "utf8");
+const renderer = readFileSync(resolve(repoRoot, "viewer/vendor/3d-force-graph.min.js"), "utf8").replace(/<\/script/gi, "<\\/script");
 
 /** Run the real build pipeline over an in-memory set of files and return the
  *  generated viewer string + the parsed bundle (as a browser would read it). */
@@ -37,7 +38,9 @@ function buildFixture(files: Record<string, string>) {
   const inlined = sources.map((s) => ({ path: s.path, code: redactSecrets(s.code).code }));
   const bundle = assembleBundle(graph, course, { product: "Code Atlas", repoLabel: "fixture" }, security, inlined);
   const bundleJson = JSON.stringify(bundle).replace(/</g, "\\u003c");
-  const viewer = viewerTemplate.replace("/*__ATLAS_BUNDLE_JSON__*/", () => bundleJson);
+  const viewer = viewerTemplate
+    .replace("/*__ATLAS_RENDERER__*/", () => renderer)
+    .replace("/*__ATLAS_BUNDLE_JSON__*/", () => bundleJson);
   return { viewer, bundle, root };
 }
 
@@ -160,4 +163,14 @@ const ok = (msg: string) => { n++; console.log("  ok " + msg); };
   ok("P2a input cap — includes/excludes run over the full answer, cap bounds regex only");
 }
 
-console.log(`security.test: ${n} finding regressions pass (F1–F7 + Codex P1/P2a) — every confirmed breakout re-attacked and blocked`);
+// ---- F8 (review): viewer is self-contained — renderer bundled, no remote code --
+{
+  const { viewer } = buildFixture({ "src/app.ts": "export function f(){ return 1; }" });
+  assert.ok(!/cdn\.jsdelivr|3d-force-graph@/.test(viewer), "F8: no CDN reference for the renderer");
+  assert.ok(!/<script\s+src=["']https?:/i.test(viewer), "F8: no external <script src> in the generated viewer");
+  assert.ok(viewer.includes("ForceGraph3D"), "F8: renderer is inlined (ForceGraph3D present in-file)");
+  assert.ok(!viewer.includes("__ATLAS_RENDERER__"), "F8: renderer placeholder was filled");
+  ok("F8 self-contained — renderer bundled in, no remote script execution");
+}
+
+console.log(`security.test: ${n} finding regressions pass (F1–F7 + Codex P1/P2a + F8 bundle) — every confirmed breakout re-attacked and blocked`);

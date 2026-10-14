@@ -1,11 +1,13 @@
 # Code Atlas
 
-Turn a repository into a **source-grounded 3D code map** and a **grounded Break & Fix course** — one local command, one local-data viewer, no server.
+Turn a repository into a **source-grounded 3D code map** and a **grounded Break & Fix course** — one local command, one self-contained viewer, no server.
 
-> The viewer's **data is fully local** (graph, course, source — all inlined). The
-> 3D rendering library (`3d-force-graph`) is loaded from a CDN, so the 3D view
-> needs a network connection; offline it shows a clear message and your data
-> stays intact. Vendoring the renderer for true offline use is a planned flag.
+> The viewer is **self-contained**: the graph, course, and source are inlined as
+> local data, and the 3D rendering library (`3d-force-graph` 1.76.0, MIT) is
+> bundled into the file itself — **no CDN and no external script execution**, so a
+> generated viewer runs fully offline. (It still links Google Fonts for
+> typography; that's a cosmetic request that cannot read page data and falls back
+> to system fonts with no network.)
 
 > Working name. The product name is not hardcoded: it is read from the bundle and set with `--product`.
 
