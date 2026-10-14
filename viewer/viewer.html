@@ -243,7 +243,12 @@
   <div class="footmark">static structure · no runtime trace</div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.76.0/dist/3d-force-graph.min.js"></script>
+<!-- The CLI injects the bundle here as inert JSON (never as executable JS), so
+     repository source carried in it cannot run as script in this page. -->
+<script type="application/json" id="atlas-bundle">/*__ATLAS_BUNDLE_JSON__*/</script>
+<!-- 3D rendering library loads from a CDN; the data above is local. Offline, the
+     3D view degrades to a clear message (see DOMContentLoaded). -->
+<script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.76.0/dist/3d-force-graph.min.js" crossorigin="anonymous"></script>
 <script>
 /* ============================================================================
    CONFIG — product identity is NOT hardcoded into the engine.
@@ -252,8 +257,14 @@
 ============================================================================ */
 const PRODUCT = { name: "Code Atlas", seal: "A/" };
 
-/* CLI replaces the placeholder with a real bundle. */
-window.__ATLAS_BUNDLE__ = /*__ATLAS_BUNDLE__*/ null;
+/* Read the injected bundle from the JSON block above and PARSE it as data.
+   Parsing (not evaluating) is what makes inlined source safe to carry. */
+window.__ATLAS_BUNDLE__ = (() => {
+  const el = document.getElementById("atlas-bundle");
+  const raw = el ? el.textContent.trim() : "";
+  if (!raw || raw.indexOf("__ATLAS_BUNDLE_JSON__") !== -1) return null; // placeholder untouched => sample mode
+  try { return JSON.parse(raw); } catch (e) { console.error("Atlas bundle failed to parse:", e); return null; }
+})();
 
 /* ---- Sample Atlas graph (clearly marked in the UI as a sample). ------------
    Shape matches the real AtlasGraph emitted by the graph builder:
@@ -607,11 +618,21 @@ function asiStamp(){
   if(!state.asi) return "";
   return `<p class="asi-stamp">ASI ${esc(state.asi.revision)} · snapshot as of ${esc(state.asi.asOf)} · the live link is the source of truth.</p>`;
 }
+/* Only http(s) links render as links; anything else (javascript:, data:, …) is
+   neutralized so a crafted bundle url cannot execute on click. */
+function safeUrl(u){
+  try{ const p = new URL(u, location.href); return (p.protocol==="http:"||p.protocol==="https:") ? p.href : null; }
+  catch{ return null; }
+}
 function asiLink(ref){
   if(!ref) return "";
   const cls = asiClass(ref.id);
   const mit = cls ? `<p class="asi-mit">${esc(cls.mitigation)}</p>` : "";
-  return `<div class="asi"><span class="asi-id">${esc(ref.id)}</span> <a class="asi-a" href="${encodeURI(ref.url)}" target="_blank" rel="noopener">${esc(ref.label)} ↗</a>${mit}</div>`;
+  const href = safeUrl(ref.url);
+  const link = href
+    ? `<a class="asi-a" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${esc(ref.label)} ↗</a>`
+    : `<span class="asi-a">${esc(ref.label)}</span>`;
+  return `<div class="asi"><span class="asi-id">${esc(ref.id)}</span> ${link}${mit}</div>`;
 }
 function securitySection(n){
   if(!state.hasFindings){
@@ -639,13 +660,21 @@ function securitySection(n){
 }
 
 /* ---- grounded Break & Fix -------------------------------------------------*/
+/* Bound the check engine so a hostile `regex` check can't hang the tab (ReDoS):
+   cap the input, cap the pattern, and refuse the classic nested-quantifier shape. */
+function safeRegex(value){
+  if(typeof value!=="string" || value.length>1000) return null;
+  if(/\([^()]*[+*][^()]*\)[+*]/.test(value)) return null;   // e.g. (a+)+
+  try{ return new RegExp(value); }catch{ return null; }
+}
 function runChecks(code, checks){
   const fails=[];
+  const input = code.length>20000 ? code.slice(0,20000) : code;
   for(const c of (checks||[])){
     let ok=true;
-    if(c.kind==="includes") ok = code.includes(c.value);
-    else if(c.kind==="excludes") ok = !code.includes(c.value);
-    else if(c.kind==="regex"){ try{ ok = new RegExp(c.value).test(code); }catch{ ok=false; } }
+    if(c.kind==="includes") ok = input.includes(c.value);
+    else if(c.kind==="excludes") ok = !input.includes(c.value);
+    else if(c.kind==="regex"){ const re=safeRegex(c.value); ok = re ? re.test(input) : false; }
     if(!ok) fails.push(c.message||"A check did not pass.");
   }
   return fails;
@@ -778,7 +807,7 @@ const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 window.addEventListener("DOMContentLoaded",()=>{
   if(typeof ForceGraph3D!=="function"){
     document.getElementById("empty").hidden=false;
-    document.getElementById("empty").textContent="3D engine failed to load.";
+    document.getElementById("empty").textContent="3D engine failed to load — the renderer (3d-force-graph) is fetched from a CDN, so this view needs a network connection. Your data is local and intact.";
     return;
   }
   buildFG();

@@ -12,6 +12,7 @@ import { scanWorkspace, readSource } from "./scanner/treeScanner.js";
 import { buildGraph } from "./scanner/graph.js";
 import { scan, ingestVibeExplainer } from "./scanner/findings.js";
 import { DEFAULT_RULES, validateRules } from "./scanner/rules.js";
+import { redactSecrets } from "./scanner/redact.js";
 import { generateCourse, assembleBundle } from "./generator/generator.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -57,8 +58,16 @@ program
       }
     }
     // Inline source so the local viewer can show code offline (per-file cap keeps the bundle sane).
+    // Redact secret-like values first: this inlined copy travels in the shareable artifact,
+    // so it must never carry a live credential. The graph/course above used the REAL source.
     const MAX_SRC = 40_000;
-    const inlined = sources.map((s) => ({ path: s.path, code: s.code.length > MAX_SRC ? s.code.slice(0, MAX_SRC) + "\n/* … truncated … */" : s.code }));
+    let redactionCount = 0;
+    const inlined = sources.map((s) => {
+      const capped = s.code.length > MAX_SRC ? s.code.slice(0, MAX_SRC) + "\n/* … truncated … */" : s.code;
+      const { code, redactions } = redactSecrets(capped);
+      redactionCount += redactions;
+      return { path: s.path, code };
+    });
     const bundle = assembleBundle(graph, course, { product: opts.product, repoLabel: label }, security, inlined);
 
     mkdirSync(opts.out, { recursive: true });
@@ -67,7 +76,12 @@ program
     let viewer: string;
     try { viewer = readFileSync(viewerPath, "utf8"); }
     catch { console.error("Viewer template not found at " + viewerPath); process.exit(1); }
-    viewer = viewer.replace("/*__ATLAS_BUNDLE__*/ null", JSON.stringify(bundle));
+    // Inject the bundle as inert data inside a <script type="application/json"> block,
+    // read with JSON.parse — NOT as a JS literal. Escaping "<" as < guarantees the
+    // serialized source can never contain "</script" and break out of the block (F1), and
+    // a function replacer means "$" sequences in source are inserted literally (F2).
+    const bundleJson = JSON.stringify(bundle).replace(/</g, "\\u003c");
+    viewer = viewer.replace("/*__ATLAS_BUNDLE_JSON__*/", () => bundleJson);
     writeFileSync(join(opts.out, "viewer.html"), viewer);
 
     const fns = graph.nodes.filter((n) => n.kind === "function").length;
@@ -75,6 +89,7 @@ program
     console.log(`Wrote ${join(opts.out, "atlas.bundle.json")} and ${join(opts.out, "viewer.html")}`);
     console.log(`  ${graph.nodes.length} nodes (${fns} functions), ${graph.edges.length} edges, ` +
       `${course.lessons.length} lessons, ${nf} findings, ${graph.diagnostics.length} diagnostics`);
+    if (redactionCount) console.log(`  redacted ${redactionCount} secret-like value(s) from inlined source`);
     console.log(`  Open ${join(opts.out, "viewer.html")} in a browser.`);
   });
 

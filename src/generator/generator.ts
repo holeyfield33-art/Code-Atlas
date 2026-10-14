@@ -195,14 +195,27 @@ export function assembleBundle(graph: AtlasGraph, course: Course, opts: GenOptio
   return parseBundle(bundle);   // self-validate against the locked contract
 }
 
+/** A learner answer is bounded, and a check pattern is a short literal. Cap both
+ *  so a hostile `regex` check (from an externally-authored bundle/rule pack)
+ *  cannot drive catastrophic backtracking. Patterns with the classic nested-
+ *  quantifier ReDoS shape — e.g. `(a+)+` — are refused outright (fail-closed). */
+const MAX_CHECK_INPUT = 20_000;
+const NESTED_QUANTIFIER = /\([^()]*[+*][^()]*\)[+*]/;
+export function safeRegex(value: string): RegExp | null {
+  if (value.length > 1000) return null;
+  if (NESTED_QUANTIFIER.test(value)) return null;
+  try { return new RegExp(value); } catch { return null; }
+}
+
 /** Shared check runner (same semantics as the viewer). */
 export function runChecks(code: string, checks: Check[]): string[] {
   const fails: string[] = [];
+  const input = code.length > MAX_CHECK_INPUT ? code.slice(0, MAX_CHECK_INPUT) : code;
   for (const c of checks) {
     let ok = true;
-    if (c.kind === "includes") ok = code.includes(c.value);
-    else if (c.kind === "excludes") ok = !code.includes(c.value);
-    else if (c.kind === "regex") { try { ok = new RegExp(c.value).test(code); } catch { ok = false; } }
+    if (c.kind === "includes") ok = input.includes(c.value);
+    else if (c.kind === "excludes") ok = !input.includes(c.value);
+    else if (c.kind === "regex") { const re = safeRegex(c.value); ok = re ? re.test(input) : false; }
     else if (c.kind === "structure") ok = true; // delegated to Block-Wise conformance in full build
     if (!ok) fails.push(c.message);
   }

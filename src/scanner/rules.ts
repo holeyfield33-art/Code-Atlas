@@ -71,6 +71,10 @@ export const DEFAULT_RULES: Rule[] = [
   },
 ];
 
+// The classic nested-quantifier ReDoS shape, e.g. (a+)+ — a custom rule's
+// nameMatches is compiled to a RegExp, so refuse this at load time.
+const NESTED_QUANTIFIER = /\([^()]*[+*][^()]*\)[+*]/;
+
 /** Minimal shape check for a loaded (customized) rule pack. */
 export function validateRules(input: unknown): Rule[] {
   if (!Array.isArray(input)) throw new Error("Rule pack must be a JSON array of rules");
@@ -78,6 +82,11 @@ export function validateRules(input: unknown): Rule[] {
     if (!r.id || !r.kind || !r.grade || !r.title || !r.when) throw new Error("Rule missing required fields: " + JSON.stringify(r.id ?? r));
     if (r.kind !== "weakness" && r.kind !== "control") throw new Error(`Rule ${r.id}: kind must be weakness|control`);
     if (r.grade !== "STATIC" && r.grade !== "INFERRED") throw new Error(`Rule ${r.id}: a static rule's grade must be STATIC or INFERRED`);
+    if (typeof r.when.nameMatches === "string") {
+      if (r.when.nameMatches.length > 1000 || NESTED_QUANTIFIER.test(r.when.nameMatches))
+        throw new Error(`Rule ${r.id}: nameMatches pattern is unsafe (too long or catastrophic backtracking shape)`);
+      try { new RegExp(r.when.nameMatches, "i"); } catch { throw new Error(`Rule ${r.id}: nameMatches is not a valid regex`); }
+    }
   }
   return input as Rule[];
 }

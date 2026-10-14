@@ -1,6 +1,11 @@
 # Code Atlas
 
-Turn a repository into a **source-grounded 3D code map** and a **grounded Break & Fix course** — one local command, one self-contained viewer, no server.
+Turn a repository into a **source-grounded 3D code map** and a **grounded Break & Fix course** — one local command, one local-data viewer, no server.
+
+> The viewer's **data is fully local** (graph, course, source — all inlined). The
+> 3D rendering library (`3d-force-graph`) is loaded from a CDN, so the 3D view
+> needs a network connection; offline it shows a clear message and your data
+> stays intact. Vendoring the renderer for true offline use is a planned flag.
 
 > Working name. The product name is not hardcoded: it is read from the bundle and set with `--product`.
 
@@ -17,7 +22,9 @@ open atlas/viewer.html              # double-click — the 3D map + course
 `build` scans the repo, builds a call/import graph with Babel, generates grounded exercises, and writes:
 
 - `atlas/atlas.bundle.json` — the graph + course, validated against the schema.
-- `atlas/viewer.html` — a self-contained 3D viewer with the bundle inlined.
+- `atlas/viewer.html` — the 3D viewer with the bundle inlined as local data (the
+  bundle is injected as inert JSON and parsed, never executed; secret-like values
+  in inlined source are redacted first).
 
 ## How it stays honest
 
