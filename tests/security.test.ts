@@ -130,4 +130,29 @@ const ok = (msg: string) => { n++; console.log("  ok " + msg); };
   ok("F6 grade cap + F7 url allowlist — external claims constrained");
 }
 
-console.log(`security.test: ${n} finding regressions pass (F1–F7) — every confirmed breakout re-attacked and blocked`);
+// ---- P1 (Codex): secret inside a lesson-eligible function must not serialize --
+{
+  const SECRET = "sk-live-LESSONLEAK-SECRET-9988776655";
+  // auth() has a guard with code after it (removed_guard-eligible) AND holds a secret.
+  const { viewer, bundle } = buildFixture({
+    "src/auth.ts": `export function auth(user){\n  if(!user) return null;\n  const token = "${SECRET}";\n  return token + user;\n}\n`,
+  });
+  assert.ok(!JSON.stringify(bundle).includes(SECRET), "P1: secret absent from bundle (lesson source included)");
+  assert.ok(!viewer.includes(SECRET), "P1: secret absent from viewer");
+  const leaked = (bundle.course?.lessons ?? []).some((l: any) =>
+    (l.breakAndFix?.broken || "").includes(SECRET) || (l.breakAndFix?.solution || "").includes(SECRET));
+  assert.ok(!leaked, "P1: no lesson embeds the secret-bearing function");
+  ok("P1 lesson leak — secret-bearing functions get no lesson, nothing serialized");
+}
+
+// ---- P2a (Codex): input cap must bind regex only, not includes/excludes ------
+{
+  const big = "x".repeat(20001) + "NEEDLE";
+  assert.strictEqual(runChecks(big, [{ kind: "includes", value: "NEEDLE", message: "m" }]).length, 0,
+    "P2a: includes sees a token past the 20k cap");
+  assert.strictEqual(runChecks(big, [{ kind: "excludes", value: "NEEDLE", message: "m" }]).length, 1,
+    "P2a: excludes sees a forbidden token past the 20k cap");
+  ok("P2a input cap — includes/excludes run over the full answer, cap bounds regex only");
+}
+
+console.log(`security.test: ${n} finding regressions pass (F1–F7 + Codex P1/P2a) — every confirmed breakout re-attacked and blocked`);

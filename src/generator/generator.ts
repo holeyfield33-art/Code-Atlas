@@ -13,6 +13,7 @@ import { parse } from "@babel/parser";
 import _traverse from "@babel/traverse";
 import type { AtlasGraph, AtlasBundle, Course, Lesson, BreakAndFix, Check, Finding, AsiSnapshot } from "../schema.js";
 import { parseBundle } from "../schema.js";
+import { redactSecrets } from "../scanner/redact.js";
 
 const traverse: any =
   (typeof _traverse === "function" ? _traverse : (_traverse as any).default);
@@ -138,6 +139,10 @@ export function generateCourse(graph: AtlasGraph, sources: SourceFile[], opts: G
       if (!fn) continue;
       const bf = detectRemovedGuard(fn, code);
       if (!bf) continue;
+      // A lesson embeds the REAL function (broken + solution) in the bundle/viewer.
+      // If that source carries a secret, skip it — redacting the snippet would break
+      // the exercise's grounding, so a secret-bearing function gets no lesson.
+      if (redactSecrets(bf.solution).redactions > 0) continue;
       bf.nodeRef = node.id; bf.file = node.evidence.path; bf.provenance.revision = node.evidence.revision;
       lessons.push({
         id: "l_guard_" + node.id, moduleId: "mod-01", title: "Restore the guard in " + node.label,
@@ -159,6 +164,7 @@ export function generateCourse(graph: AtlasGraph, sources: SourceFile[], opts: G
       if (!fn) continue;
       const bf = detectBrokenCallEdge(fn, code, callee.label);
       if (!bf) continue;
+      if (redactSecrets(bf.solution).redactions > 0) continue; // never serialize a lesson built from secret-bearing source
       bf.nodeRef = caller.id; bf.file = caller.evidence.path; bf.provenance.revision = caller.evidence.revision;
       lessons.push({
         id: "l_call_" + edge.id.replace(/[^a-z0-9]/gi, "_"), moduleId: "mod-01",
@@ -207,15 +213,20 @@ export function safeRegex(value: string): RegExp | null {
   try { return new RegExp(value); } catch { return null; }
 }
 
-/** Shared check runner (same semantics as the viewer). */
+/** Shared check runner (same semantics as the viewer). The input cap applies
+ *  ONLY to regex evaluation (the backtracking surface). includes/excludes run
+ *  over the full answer so a required/forbidden token past the cap is not missed. */
 export function runChecks(code: string, checks: Check[]): string[] {
   const fails: string[] = [];
-  const input = code.length > MAX_CHECK_INPUT ? code.slice(0, MAX_CHECK_INPUT) : code;
   for (const c of checks) {
     let ok = true;
-    if (c.kind === "includes") ok = input.includes(c.value);
-    else if (c.kind === "excludes") ok = !input.includes(c.value);
-    else if (c.kind === "regex") { const re = safeRegex(c.value); ok = re ? re.test(input) : false; }
+    if (c.kind === "includes") ok = code.includes(c.value);
+    else if (c.kind === "excludes") ok = !code.includes(c.value);
+    else if (c.kind === "regex") {
+      const re = safeRegex(c.value);
+      const bounded = code.length > MAX_CHECK_INPUT ? code.slice(0, MAX_CHECK_INPUT) : code;
+      ok = re ? re.test(bounded) : false;
+    }
     else if (c.kind === "structure") ok = true; // delegated to Block-Wise conformance in full build
     if (!ok) fails.push(c.message);
   }

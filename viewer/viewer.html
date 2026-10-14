@@ -669,12 +669,15 @@ function safeRegex(value){
 }
 function runChecks(code, checks){
   const fails=[];
-  const input = code.length>20000 ? code.slice(0,20000) : code;
   for(const c of (checks||[])){
     let ok=true;
-    if(c.kind==="includes") ok = input.includes(c.value);
-    else if(c.kind==="excludes") ok = !input.includes(c.value);
-    else if(c.kind==="regex"){ const re=safeRegex(c.value); ok = re ? re.test(input) : false; }
+    if(c.kind==="includes") ok = code.includes(c.value);            // full answer
+    else if(c.kind==="excludes") ok = !code.includes(c.value);      // full answer
+    else if(c.kind==="regex"){                                      // cap bounds regex only
+      const re=safeRegex(c.value);
+      const bounded = code.length>20000 ? code.slice(0,20000) : code;
+      ok = re ? re.test(bounded) : false;
+    }
     if(!ok) fails.push(c.message||"A check did not pass.");
   }
   return fails;
