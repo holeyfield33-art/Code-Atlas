@@ -23,8 +23,11 @@ open atlas/viewer.html              # double-click — the 3D map + course
 
 - `atlas/atlas.bundle.json` — the graph + course, validated against the schema.
 - `atlas/viewer.html` — the 3D viewer with the bundle inlined as local data (the
-  bundle is injected as inert JSON and parsed, never executed; secret-like values
-  in inlined source are redacted first).
+  bundle is injected as inert JSON and parsed, never executed). Secret-like values
+  in inlined source are redacted on a **best-effort, pattern-based** basis, and any
+  function whose source carries a secret is dropped from the course rather than
+  shown. This is a safeguard, not a guarantee: a generated viewer still carries
+  real source, so review it before sharing a repo you consider private.
 
 ## How it stays honest
 

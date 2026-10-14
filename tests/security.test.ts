@@ -16,7 +16,7 @@ import { scanWorkspace, readSource } from "../src/scanner/treeScanner.js";
 import { buildGraph } from "../src/scanner/graph.js";
 import { scan, ingestReport, type ExternalFinding } from "../src/scanner/findings.js";
 import { DEFAULT_RULES } from "../src/scanner/rules.js";
-import { generateCourse, assembleBundle, runChecks, safeRegex } from "../src/generator/generator.js";
+import { generateCourse, assembleBundle, runChecks } from "../src/generator/generator.js";
 import { redactSecrets } from "../src/scanner/redact.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -92,16 +92,21 @@ const ok = (msg: string) => { n++; console.log("  ok " + msg); };
   ok("F3 symlink escape — links are not followed, host file not read");
 }
 
-// ---- F4: ReDoS -----------------------------------------------------------
+// ---- F4: ReDoS (regex checks are not executed at all) --------------------
+// Includes the alternation case Sol/Codex reproduced that a shape heuristic misses.
 {
-  const t0 = Date.now();
-  const fails = runChecks("a".repeat(50) + "!", [{ kind: "regex", value: "(a+)+$", message: "redos" }]);
-  const dt = Date.now() - t0;
-  assert.ok(dt < 1000, `F4: catastrophic regex must return fast (took ${dt}ms)`);
-  assert.strictEqual(fails.length, 1, "F4: unsafe pattern is rejected and the check fails closed");
-  assert.strictEqual(safeRegex("(a+)+$"), null, "F4: safeRegex refuses the nested-quantifier shape");
-  assert.ok(safeRegex("foo\\(") instanceof RegExp, "F4: ordinary patterns still compile");
-  ok("F4 ReDoS — nested-quantifier patterns refused, input bounded");
+  const PATHOLOGICAL = ["(a+)+$", "(a|aa)+$", "(a|a?)+$", "([a-zA-Z]+)*$", "(.*a){25}$"];
+  const input = "a".repeat(60) + "!";
+  for (const p of PATHOLOGICAL) {
+    const t0 = Date.now();
+    const fails = runChecks(input, [{ kind: "regex", value: p, message: "x" }]);
+    const dt = Date.now() - t0;
+    assert.ok(dt < 100, `F4: regex check must not execute/backtrack for ${p} (took ${dt}ms)`);
+    assert.strictEqual(fails.length, 1, `F4: regex check ${p} is disabled (reported unmet, not run)`);
+  }
+  assert.strictEqual(runChecks("return x;", [{ kind: "includes", value: "return", message: "m" }]).length, 0,
+    "F4: includes/excludes still work");
+  ok("F4 ReDoS — regex checks not executed (alternation/overlap/nested all safe)");
 }
 
 // ---- F5: secret exposure -------------------------------------------------

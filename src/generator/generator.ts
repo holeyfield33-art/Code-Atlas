@@ -201,32 +201,24 @@ export function assembleBundle(graph: AtlasGraph, course: Course, opts: GenOptio
   return parseBundle(bundle);   // self-validate against the locked contract
 }
 
-/** A learner answer is bounded, and a check pattern is a short literal. Cap both
- *  so a hostile `regex` check (from an externally-authored bundle/rule pack)
- *  cannot drive catastrophic backtracking. Patterns with the classic nested-
- *  quantifier ReDoS shape — e.g. `(a+)+` — are refused outright (fail-closed). */
-const MAX_CHECK_INPUT = 20_000;
-const NESTED_QUANTIFIER = /\([^()]*[+*][^()]*\)[+*]/;
-export function safeRegex(value: string): RegExp | null {
-  if (value.length > 1000) return null;
-  if (NESTED_QUANTIFIER.test(value)) return null;
-  try { return new RegExp(value); } catch { return null; }
-}
-
-/** Shared check runner (same semantics as the viewer). The input cap applies
- *  ONLY to regex evaluation (the backtracking surface). includes/excludes run
- *  over the full answer so a required/forbidden token past the cap is not missed. */
+/** Shared check runner (same semantics as the viewer).
+ *
+ *  `regex` checks are NOT executed. Running a caller-supplied pattern on a
+ *  learner answer is an unbounded backtracking (ReDoS) surface, and there is no
+ *  safe way to bound it in a standalone HTML page without a non-backtracking
+ *  engine — heuristic pattern-shape filters are provably incomplete (e.g.
+ *  `(a|aa)+$` is catastrophic yet has no quantified token inside the group).
+ *  The generator only ever emits `includes`/`excludes` checks, so disabling the
+ *  `regex` kind at runtime costs no generated content and removes the surface
+ *  entirely. A regex check reports as unmet with a clear message rather than run.
+ *  includes/excludes evaluate over the FULL answer. */
 export function runChecks(code: string, checks: Check[]): string[] {
   const fails: string[] = [];
   for (const c of checks) {
+    if (c.kind === "regex") { fails.push("Regex checks are disabled in this build for safety."); continue; }
     let ok = true;
     if (c.kind === "includes") ok = code.includes(c.value);
     else if (c.kind === "excludes") ok = !code.includes(c.value);
-    else if (c.kind === "regex") {
-      const re = safeRegex(c.value);
-      const bounded = code.length > MAX_CHECK_INPUT ? code.slice(0, MAX_CHECK_INPUT) : code;
-      ok = re ? re.test(bounded) : false;
-    }
     else if (c.kind === "structure") ok = true; // delegated to Block-Wise conformance in full build
     if (!ok) fails.push(c.message);
   }

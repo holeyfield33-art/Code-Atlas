@@ -660,24 +660,17 @@ function securitySection(n){
 }
 
 /* ---- grounded Break & Fix -------------------------------------------------*/
-/* Bound the check engine so a hostile `regex` check can't hang the tab (ReDoS):
-   cap the input, cap the pattern, and refuse the classic nested-quantifier shape. */
-function safeRegex(value){
-  if(typeof value!=="string" || value.length>1000) return null;
-  if(/\([^()]*[+*][^()]*\)[+*]/.test(value)) return null;   // e.g. (a+)+
-  try{ return new RegExp(value); }catch{ return null; }
-}
+/* regex checks are NOT executed: a caller-supplied pattern on a learner answer
+   is an unbounded backtracking (ReDoS) surface with no safe bound in a standalone
+   page, and shape heuristics are provably incomplete (e.g. (a|aa)+$). Generated
+   lessons only use includes/excludes, so the regex kind is disabled at runtime. */
 function runChecks(code, checks){
   const fails=[];
   for(const c of (checks||[])){
+    if(c.kind==="regex"){ fails.push("Regex checks are disabled in this build for safety."); continue; }
     let ok=true;
     if(c.kind==="includes") ok = code.includes(c.value);            // full answer
     else if(c.kind==="excludes") ok = !code.includes(c.value);      // full answer
-    else if(c.kind==="regex"){                                      // cap bounds regex only
-      const re=safeRegex(c.value);
-      const bounded = code.length>20000 ? code.slice(0,20000) : code;
-      ok = re ? re.test(bounded) : false;
-    }
     if(!ok) fails.push(c.message||"A check did not pass.");
   }
   return fails;
