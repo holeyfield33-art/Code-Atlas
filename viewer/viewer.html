@@ -1,0 +1,827 @@
+<title>Code Atlas 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="A source-grounded 3D map of a codebase, rendered from an Atlas graph.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  /* Layout: full-bleed 3D stage with a fixed command rail (top) and a sliding evidence panel (right). Dark-first, instrument-like. */
+  :root{
+    --bg:#0b0f14; --panel:#111823; --panel-2:#0e141d; --edge:#1f2a37;
+    --fg:#e7edf3; --fg-dim:#9bb0c3; --fg-faint:#64788c;
+    --accent:#3fd0c9;                 /* selection / signal */
+    --file:#e0a356;                   /* file node */
+    --func:#5bb8ff;                   /* function node */
+    --k-contains:#5a6b7d; --k-imports:#6aa2ff; --k-calls:#57c98a;
+    --grade-red:#e5484d; --grade-yellow:#e0a356; --grade-green:#57c98a; --grade-gray:#56657a;
+    --radius:10px; --rail-h:112px;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    color-scheme:dark;
+  }
+  :root[data-theme="light"]{
+    --bg:#f3f5f8; --panel:#ffffff; --panel-2:#eef1f5; --edge:#d7dee7;
+    --fg:#141b24; --fg-dim:#45586b; --fg-faint:#7488a0;
+    --accent:#0f9a93; --file:#b9751f; --func:#1f73c4;
+    --k-contains:#8a99a9; --k-imports:#2f6fd0; --k-calls:#2f9c63;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme:light){
+    :root:not([data-theme="dark"]){
+      --bg:#f3f5f8; --panel:#ffffff; --panel-2:#eef1f5; --edge:#d7dee7;
+      --fg:#141b24; --fg-dim:#45586b; --fg-faint:#7488a0;
+      --accent:#0f9a93; --file:#b9751f; --func:#1f73c4;
+      --k-contains:#8a99a9; --k-imports:#2f6fd0; --k-calls:#2f9c63;
+      color-scheme:light;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);overflow:hidden}
+  #stage{position:fixed;inset:0}
+  #graph{position:absolute;inset:0}
+  #graph canvas{display:block;outline:none}
+
+  /* command rail */
+  .rail{position:absolute;top:0;left:0;right:0;z-index:5;
+    padding-top:env(safe-area-inset-top,0px);
+    padding-left:max(16px,env(safe-area-inset-left,0px));
+    padding-right:max(16px,env(safe-area-inset-right,0px));
+    background:linear-gradient(180deg,color-mix(in srgb,var(--bg) 92%,transparent),color-mix(in srgb,var(--bg) 60%,transparent) 70%,transparent);
+    pointer-events:none}
+  .rail>*{pointer-events:auto}
+  .rail-top{display:flex;align-items:center;gap:14px;padding-block:12px 8px;flex-wrap:wrap}
+  .brand{display:flex;align-items:baseline;gap:9px;min-width:0}
+  .seal{font-family:var(--mono);font-weight:600;font-size:13px;color:var(--bg);background:var(--accent);
+    padding:3px 7px;border-radius:6px;letter-spacing:.5px}
+  .brand h1{font-size:18px;margin:0;font-weight:700;letter-spacing:-.2px;white-space:nowrap}
+  .brand .rev{font-family:var(--mono);font-size:11px;color:var(--fg-faint);white-space:nowrap}
+  .spacer{flex:1 1 auto}
+  .btn{font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--fg-dim);
+    background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:7px 11px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:border-color .15s,color .15s}
+  .btn:hover{color:var(--fg);border-color:var(--accent)}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .rail-bottom{display:flex;align-items:center;gap:8px;padding-block:4px 12px;flex-wrap:wrap}
+  .modes{display:inline-flex;background:var(--panel);border:1px solid var(--edge);border-radius:9px;padding:3px}
+  .modes button{font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--fg-dim);background:transparent;
+    border:0;border-radius:6px;padding:6px 12px;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
+  .modes button .n{font-family:var(--mono);font-size:10px;color:var(--fg-faint)}
+  .modes button[aria-pressed="true"]{background:var(--accent);color:var(--bg)}
+  .modes button[aria-pressed="true"] .n{color:var(--bg);opacity:.7}
+  .search{display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--edge);
+    border-radius:8px;padding:6px 10px;min-width:170px;flex:0 1 240px}
+  .search input{background:transparent;border:0;color:var(--fg);font-family:var(--sans);font-size:13px;width:100%;outline:none}
+  .search span{color:var(--fg-faint);font-size:13px}
+  .filters{display:inline-flex;gap:5px;flex-wrap:wrap}
+  .chip{font-family:var(--mono);font-size:10.5px;letter-spacing:.3px;text-transform:uppercase;color:var(--fg-dim);
+    background:var(--panel);border:1px solid var(--edge);border-radius:999px;padding:5px 10px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+  .chip i{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .chip[aria-pressed="false"]{opacity:.42;text-decoration:line-through}
+
+  /* evidence / inspector panel */
+  .inspector{position:absolute;top:0;right:0;bottom:0;z-index:6;width:min(380px,92vw);
+    transform:translateX(102%);transition:transform .28s cubic-bezier(.2,.7,.2,1);
+    background:var(--panel);border-left:1px solid var(--edge);display:flex;flex-direction:column;
+    padding-top:calc(env(safe-area-inset-top,0px));
+    padding-right:env(safe-area-inset-right,0px)}
+  .inspector.open{transform:translateX(0)}
+  .insp-head{padding:16px 18px 12px;border-bottom:1px solid var(--edge);display:flex;gap:10px;align-items:flex-start}
+  .insp-head .k{font-family:var(--mono);font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--fg-faint)}
+  .insp-head h2{margin:3px 0 0;font-size:17px;font-weight:600;word-break:break-word;line-height:1.25}
+  .insp-dot{width:10px;height:10px;border-radius:3px;margin-top:5px;flex:0 0 auto}
+  .insp-close{margin-left:auto;background:transparent;border:0;color:var(--fg-faint);font-size:20px;cursor:pointer;line-height:1;padding:2px 4px}
+  .insp-close:hover{color:var(--fg)}
+  .insp-body{overflow-y:auto;padding:16px 18px 24px;flex:1;min-width:0}
+  .plain{font-size:14px;line-height:1.55;color:var(--fg)}
+  .role{margin:12px 0 0;font-size:13px;line-height:1.5;color:var(--fg-dim)}
+  .connects{margin:14px 0 0}
+  .connects h3,.evidence h3,.lessons h3{font-family:var(--mono);font-size:10.5px;letter-spacing:.5px;text-transform:uppercase;
+    color:var(--fg-faint);margin:0 0 7px}
+  .conn-row{display:flex;gap:8px;align-items:baseline;font-size:13px;padding:3px 0;line-height:1.4}
+  .conn-row .lab{font-family:var(--mono);font-size:10px;color:var(--fg-faint);min-width:64px;text-transform:uppercase}
+  .conn-row .vals{color:var(--fg-dim);word-break:break-word}
+  .conn-row .vals b{color:var(--fg);font-weight:500;cursor:pointer;border-bottom:1px dotted var(--fg-faint)}
+  .conn-row .vals b:hover{color:var(--accent);border-color:var(--accent)}
+  .evidence{margin-top:18px;border-top:1px dashed var(--edge);padding-top:14px}
+  .ev-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--fg-dim);font-size:12.5px;font-weight:500;user-select:none}
+  .ev-toggle .caret{transition:transform .2s;font-size:10px;color:var(--fg-faint)}
+  .evidence.open .caret{transform:rotate(90deg)}
+  .ev-grid{display:none;margin-top:12px;font-family:var(--mono);font-size:11.5px;line-height:1.7}
+  .evidence.open .ev-grid{display:block}
+  .ev-grid div{display:flex;gap:10px;padding:2px 0;border-bottom:1px solid var(--panel-2)}
+  .ev-grid .ek{color:var(--fg-faint);min-width:78px}
+  .ev-grid .ev{color:var(--fg-dim);word-break:break-all}
+  .lesson-title{font-size:14px;font-weight:600;margin:0 0 6px;display:flex;align-items:center;gap:8px}
+  .done-pill{font-family:var(--mono);font-size:9.5px;letter-spacing:.3px;text-transform:uppercase;color:var(--bg);
+    background:var(--k-calls);border-radius:999px;padding:2px 7px}
+  .teach{font-size:13px;line-height:1.55;color:var(--fg-dim);margin:0 0 12px}
+  .bf{background:var(--panel-2);border:1px solid var(--edge);border-radius:10px;padding:12px}
+  .bf-head{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+  .bf-tag{font-family:var(--mono);font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--grade-yellow)}
+  .bf-file{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint)}
+  .bf-task{font-size:12.5px;line-height:1.5;color:var(--fg);margin:0 0 10px}
+  .bf-code{width:100%;min-height:150px;resize:vertical;background:var(--bg);color:var(--fg);
+    border:1px solid var(--edge);border-radius:8px;padding:10px;font-family:var(--mono);font-size:11.5px;line-height:1.55;
+    tab-size:2;white-space:pre;overflow:auto}
+  .bf-code:focus{outline:2px solid var(--accent);outline-offset:1px}
+  .bf-actions{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+  .bf-check{color:var(--bg)!important;background:var(--accent)!important;border-color:var(--accent)!important;font-weight:600}
+  .bf-feedback{margin-top:10px;font-size:12.5px;line-height:1.5;border-radius:8px;padding:9px 11px}
+  .bf-feedback.pass{color:var(--k-calls);background:color-mix(in srgb,var(--k-calls) 14%,transparent);border:1px solid var(--k-calls)}
+  .bf-feedback.fail{color:var(--grade-yellow);background:color-mix(in srgb,var(--grade-yellow) 12%,transparent);border:1px solid var(--grade-yellow)}
+  .bf-feedback ul{margin:6px 0 0;padding-left:18px}
+  .bf-feedback li{margin:2px 0}
+  .bf-note{font-size:11px;line-height:1.45;color:var(--fg-faint);margin:10px 0 0}
+  .sec{margin-top:16px;border-top:1px dashed var(--edge);padding-top:14px}
+  .sec-head{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+  .grade-pill{font-family:var(--mono);font-size:9.5px;letter-spacing:.4px;color:var(--bg);border-radius:999px;padding:3px 9px;font-weight:600}
+  .grade-ev{font-family:var(--mono);font-size:10px;color:var(--fg-faint)}
+  .sec-title{font-size:14px;font-weight:600;margin:0 0 6px}
+  .sec-expl{font-size:13px;line-height:1.55;color:var(--fg-dim);margin:0 0 10px}
+  .sec-note{font-size:11.5px;line-height:1.5;color:var(--fg-faint);margin:10px 0 0}
+  .asi{background:var(--panel-2);border:1px solid var(--edge);border-radius:9px;padding:10px 12px;margin:10px 0 0}
+  .asi-id{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint)}
+  .asi-a{font-size:13px;font-weight:500;color:var(--accent);text-decoration:none;margin-left:4px}
+  .asi-a:hover{text-decoration:underline}
+  .asi-mit{font-size:12px;line-height:1.5;color:var(--fg-dim);margin:7px 0 0}
+  .asi-stamp{font-size:10.5px;line-height:1.45;color:var(--fg-faint);margin:12px 0 0;font-family:var(--mono)}
+  .legend i.sq{border-radius:2px}
+  .srcwrap{margin-top:16px;border-top:1px dashed var(--edge);padding-top:14px}
+  .src-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--fg-dim);font-size:12.5px;font-weight:500;user-select:none;flex-wrap:wrap}
+  .src-toggle .caret{transition:transform .2s;font-size:10px;color:var(--fg-faint)}
+  .srcwrap.open .caret{transform:rotate(90deg)}
+  .src-path{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint)}
+  .src-tag{font-family:var(--mono);font-size:9px;letter-spacing:.3px;color:var(--bg);border-radius:999px;padding:2px 7px}
+  .src{display:none;margin-top:10px}
+  .srcwrap.open .src{display:block}
+  .src-inner{max-height:340px;overflow:auto;background:var(--bg);border:1px solid var(--edge);border-radius:8px;padding:8px 0;
+    font-family:var(--mono);font-size:11px;line-height:1.55}
+  .src-line{display:flex;gap:10px;padding:0 10px;white-space:pre}
+  .src-line.hot{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+  .src-no{color:var(--fg-faint);text-align:right;min-width:30px;user-select:none;flex:0 0 auto}
+  .src-code{color:var(--fg-dim);white-space:pre}
+  .src-line.hot .src-code{color:var(--fg)}
+  .src-more{color:var(--fg-faint);font-style:italic;padding:6px 10px 0}
+  .note{margin-top:14px;font-size:12.5px;line-height:1.5;color:var(--fg-dim);
+    background:var(--panel-2);border-left:3px solid var(--grade-gray);border-radius:0 8px 8px 0;padding:11px 13px}
+  .note.security{border-left-color:var(--grade-gray)}
+
+  .legend{position:absolute;left:max(16px,env(safe-area-inset-left,0px));bottom:14px;z-index:4;
+    display:flex;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);
+    background:color-mix(in srgb,var(--panel) 70%,transparent);border:1px solid var(--edge);border-radius:8px;padding:8px 12px;
+    backdrop-filter:blur(6px);max-width:min(560px,90vw)}
+  .legend b{color:var(--fg-dim);font-weight:500}
+  .legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
+  .legend .ln{width:16px;height:0;border-top:2px solid;display:inline-block;margin-right:5px;vertical-align:middle}
+  .footmark{position:absolute;right:max(16px,env(safe-area-inset-right,0px));bottom:16px;z-index:4;
+    font-family:var(--mono);font-size:10px;color:var(--fg-faint);text-align:right;pointer-events:none}
+  .empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--fg-faint);
+    font-size:14px;z-index:3;pointer-events:none}
+  .sample-badge{position:absolute;left:50%;top:calc(var(--rail-h) + 6px);transform:translateX(-50%);z-index:4;
+    font-family:var(--mono);font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--grade-yellow);
+    background:color-mix(in srgb,var(--panel) 85%,transparent);border:1px solid var(--edge);border-radius:999px;padding:4px 11px}
+  @media (max-width:560px){
+    .brand .rev{display:none}
+    .legend{display:none}
+    .inspector{width:100vw}
+  }
+</style>
+
+<div id="stage">
+  <div id="graph"></div>
+  <div class="empty" id="empty" hidden>Loading map…</div>
+  <div class="sample-badge" id="sampleBadge">Sample graph — load your own Atlas bundle</div>
+
+  <div class="rail">
+    <div class="rail-top">
+      <div class="brand">
+        <span class="seal" id="seal">A/</span>
+        <h1 id="brandName">Code Atlas</h1>
+        <span class="rev" id="brandRev"></span>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn" id="loadBtn" title="Load an Atlas graph or bundle (.json)">↥ Load bundle</button>
+      <button class="btn" id="fitBtn" title="Reset the view">⤢ Fit view</button>
+      <button class="btn" id="themeBtn" title="Toggle light / dark">◐ Theme</button>
+      <input id="file" type="file" accept="application/json,.json" hidden>
+    </div>
+    <div class="rail-bottom">
+      <div class="modes" role="group" aria-label="View mode">
+        <button data-mode="architecture" aria-pressed="true"><span class="n">01</span> Architecture</button>
+        <button data-mode="learn" aria-pressed="false"><span class="n">02</span> Learn</button>
+        <button data-mode="security" aria-pressed="false"><span class="n">03</span> Security</button>
+      </div>
+      <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Find a file or function…" autocomplete="off" aria-label="Search components"></label>
+      <div class="filters" id="filters" aria-label="Edge filters">
+        <button class="chip" data-kind="contains" aria-pressed="true"><i style="background:var(--k-contains)"></i>contains</button>
+        <button class="chip" data-kind="imports" aria-pressed="true"><i style="background:var(--k-imports)"></i>imports</button>
+        <button class="chip" data-kind="calls" aria-pressed="true"><i style="background:var(--k-calls)"></i>calls</button>
+      </div>
+    </div>
+  </div>
+
+  <aside class="inspector" id="inspector" aria-live="polite">
+    <div class="insp-head">
+      <span class="insp-dot" id="inspDot"></span>
+      <div style="min-width:0">
+        <div class="k" id="inspKind">COMPONENT</div>
+        <h2 id="inspTitle">—</h2>
+      </div>
+      <button class="insp-close" id="inspClose" aria-label="Close inspector">×</button>
+    </div>
+    <div class="insp-body" id="inspBody"></div>
+  </aside>
+
+  <div class="legend" id="legend">
+    <span><i style="background:var(--file)"></i><b>file</b></span>
+    <span><i style="background:var(--func)"></i><b>function</b></span>
+    <span><span class="ln" style="border-color:var(--k-contains)"></span><b>contains</b></span>
+    <span><span class="ln" style="border-color:var(--k-imports)"></span><b>imports</b></span>
+    <span><span class="ln" style="border-color:var(--k-calls)"></span><b>calls</b></span>
+  </div>
+  <div class="footmark">static structure · no runtime trace</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1.76.0/dist/3d-force-graph.min.js"></script>
+<script>
+/* ============================================================================
+   CONFIG — product identity is NOT hardcoded into the engine.
+   Change these, or let a loaded bundle's `product` / `repository.label`
+   override them. The renderer below never assumes a product name.
+============================================================================ */
+const PRODUCT = { name: "Code Atlas", seal: "A/" };
+
+/* CLI replaces the placeholder with a real bundle. */
+window.__ATLAS_BUNDLE__ = /*__ATLAS_BUNDLE__*/ null;
+
+/* ---- Sample Atlas graph (clearly marked in the UI as a sample). ------------
+   Shape matches the real AtlasGraph emitted by the graph builder:
+   nodes {id,kind,label,evidence}, edges {id,from,to,kind,evidence}.          */
+const SAMPLE = (() => {
+  const ev = (path, line) => ({ path, line, column: 3, revision: "sample@local",
+    contentHash: "sha256:"+(path.length*7+line).toString(16).padStart(8,"0"), method:"babel-static", status:"static" });
+  const N = (id,kind,label,path,line)=>({id,kind,label,evidence:ev(path,line)});
+  const E = (from,to,kind)=>({id:from+":"+kind+":"+to,from,to,kind,evidence:ev("—",1)});
+  const nodes = [
+    N("f_scan","file","scanner/treeScanner.ts","scanner/treeScanner.ts",1),
+    N("f_graph","file","atlas/graph.ts","atlas/graph.ts",1),
+    N("f_bundle","file","bundle/assemble.ts","bundle/assemble.ts",1),
+    N("f_cli","file","bin/index.ts","bin/index.ts",1),
+    N("f_redact","file","har/redact.ts","har/redact.ts",1),
+    N("fn_scan","function","scanWorkspace","scanner/treeScanner.ts",14),
+    N("fn_build","function","buildGraph","atlas/graph.ts",28),
+    N("fn_resolve","function","resolveImport","atlas/graph.ts",46),
+    N("fn_assemble","function","assembleBundle","bundle/assemble.ts",11),
+    N("fn_redact","function","redactBody","har/redact.ts",22),
+    N("fn_main","function","main","bin/index.ts",9),
+  ];
+  const edges = [
+    E("f_scan","fn_scan","contains"), E("f_graph","fn_build","contains"),
+    E("f_graph","fn_resolve","contains"), E("f_bundle","fn_assemble","contains"),
+    E("f_redact","fn_redact","contains"), E("f_cli","fn_main","contains"),
+    E("f_graph","f_scan","imports"), E("f_bundle","f_graph","imports"),
+    E("f_bundle","f_redact","imports"), E("f_cli","f_bundle","imports"),
+    E("fn_build","fn_scan","calls"), E("fn_build","fn_resolve","calls"),
+    E("fn_assemble","fn_build","calls"), E("fn_assemble","fn_redact","calls"),
+    E("fn_main","fn_assemble","calls"),
+  ];
+  return { version:"0.1", revision:"sample@local", nodes, edges, diagnostics:[] };
+})();
+
+/* ---- Sample course: lessons attach to node ids. Each lesson carries a REAL,
+   grounded Break & Fix — a true defect in real code, verified structurally
+   (not "press done"). This is the mechanic the new course layer renders. ----*/
+const SAMPLE_COURSE = { lessons: [
+  {
+    id:"l_resolve", nodeId:"fn_resolve", title:"Don't guess an ambiguous import",
+    teach:"Atlas's core promise is that every edge is real. `resolveImport` decides which file an import points to. The rule: if an import could match more than one file (e.g. `./utils` → `utils.ts` OR `utils/index.ts`), it must NOT guess — an ambiguous import becomes an honest 'unresolved' diagnostic, never a confident wrong edge.",
+    breakAndFix:{
+      file:"atlas/graph.ts",
+      broken:
+"function resolveImport(absolute, source) {\n"+
+"  const candidates = resolveCandidates(absolute, source);\n"+
+"  const found = candidates.filter(p => accepted.has(p));\n"+
+"  // BUG: returns the first match even when several files match,\n"+
+"  // so an ambiguous import becomes a confident (wrong) edge.\n"+
+"  return found[0];\n"+
+"}",
+      task:"Fix `resolveImport` so it only returns a match when there is exactly one candidate; otherwise return `undefined` (which the builder records as an honest 'unresolved' diagnostic). Do not return `found[0]` unconditionally.",
+      checks:[
+        {kind:"regex", value:"found\\.length\\s*===\\s*1", message:"Guard on exactly one candidate — e.g. `found.length === 1`."},
+        {kind:"excludes", value:"return found[0];", message:"Remove the unconditional `return found[0];`."}
+      ],
+      solution:
+"function resolveImport(absolute, source) {\n"+
+"  const candidates = resolveCandidates(absolute, source);\n"+
+"  const found = candidates.filter(p => accepted.has(p));\n"+
+"  // Exactly one match, or nothing — never a guess.\n"+
+"  return found.length === 1 ? found[0] : undefined;\n"+
+"}"
+    }
+  }
+]};
+/* ---- Sample threat map: findings colour the graph in Security mode. ASI is
+   the taxonomy (label + mitigation + live link); the grade comes only from how
+   a finding was verified here. Illustrative sample. ------------------------- */
+const SAMPLE_ASI = { source:"Agent Security Index", revision:"draft-2026-10", asOf:"2026-10-01",
+  baseUrl:"https://index.aletheia-core.com", classes:[
+    { id:"ASI-AC-007", label:"Untrusted input to a privileged sink", mitigation:"Validate and constrain inputs at the trust boundary before they reach a file, exec, or query sink.", url:"https://index.aletheia-core.com/#ASI-AC-007" },
+    { id:"ASI-AC-014", label:"Secret handling / redaction", mitigation:"Redact secrets before persistence or logging; never store raw credentials.", url:"https://index.aletheia-core.com/#ASI-AC-014" },
+  ]};
+const SAMPLE_FINDINGS = [
+  { id:"F1", nodeRefs:["fn_main"], kind:"weakness", grade:"OBSERVED",
+    title:"Input reaches a write sink without a guard",
+    explanation:"main() forwards a caller-supplied path toward a file write with no validation. (Illustrative sample.)",
+    evidence:[{source:"sample",detail:"illustrative finding"}], blastRadius:["fn_assemble"],
+    asiRef:{ id:"ASI-AC-007", url:"https://index.aletheia-core.com/#ASI-AC-007", label:"Untrusted input to a privileged sink", asOf:"2026-10-01" } },
+  { id:"F2", nodeRefs:["fn_redact"], kind:"control", grade:"TESTED",
+    title:"Redaction runs before persistence",
+    explanation:"redactBody() strips secrets before anything is written — a hardened control, evaluated against secret-exposure. Green does not mean universally safe.",
+    evidence:[{source:"sample",detail:"illustrative control"}], blastRadius:[],
+    asiRef:{ id:"ASI-AC-014", url:"https://index.aletheia-core.com/#ASI-AC-014", label:"Secret handling / redaction", asOf:"2026-10-01" } },
+];
+const SAMPLE_SOURCES = [
+  { path:"bin/index.ts", code:
+"#!/usr/bin/env node\n"+
+"import { assembleBundle } from '../bundle/assemble.js';\n"+
+"import { buildGraph } from '../atlas/graph.js';\n"+
+"import { scanWorkspace } from '../scanner/treeScanner.js';\n"+
+"import { writeFileSync } from 'node:fs';\n"+
+"\n"+
+"// Entry point: scan -> graph -> bundle -> write.\n"+
+"async function main() {\n"+
+"  const files = await scanWorkspace(process.cwd());\n"+
+"  const graph = buildGraph('local', files);\n"+
+"  const bundle = assembleBundle(graph);\n"+
+"  writeFileSync('atlas.bundle.json', JSON.stringify(bundle));\n"+
+"}\n"+
+"main();\n" },
+];
+const SAMPLE_BUNDLE = { graph: SAMPLE, course: SAMPLE_COURSE, findings: SAMPLE_FINDINGS, asiSnapshot: SAMPLE_ASI, sources: SAMPLE_SOURCES };
+
+/* ---- Bundle adapter: accept a raw AtlasGraph or a full AtlasBundle. -------- */
+function normalize(input){
+  const graph = input && input.graph ? input.graph : input;
+  if(!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges))
+    throw new Error("Not an Atlas graph: expected { nodes:[], edges:[] }");
+  const label = (input && input.repository && input.repository.label)
+    || (input && input.product && input.product.name) || null;
+  const name = (input && input.product && input.product.name) || null;
+  const course = (input && input.course) || null;
+  const findings = (input && input.findings) || null;
+  const asi = (input && input.asiSnapshot) || null;
+  const sources = (input && input.sources) || null;
+  return { graph, label, productName:name, course, findings, asi, sources, revision:(input&&input.repository&&input.repository.revision)||graph.revision||"" };
+}
+
+const KIND_COLOR = k => k==="file" ? css("--file") : css("--func");
+const EDGE_COLOR = { contains:"--k-contains", imports:"--k-imports", calls:"--k-calls" };
+function css(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+const state = {
+  graph:null, byId:new Map(), nbr:new Map(), selected:null,
+  mode:"architecture", filters:{contains:true,imports:true,calls:true}, isSample:true,
+  course:null, lessons:new Map(), completed:new Set(),
+  findingByNode:new Map(), blast:new Set(), asi:null, hasFindings:false, sources:new Map()
+};
+
+const GRADECSS = { red:"--grade-red", yellow:"--grade-yellow", green:"--grade-green", gray:"--grade-gray" };
+function gradeOf(nodeId){
+  const f = state.findingByNode.get(nodeId);
+  if(f){ if(f.kind==="control") return "green"; if(f.grade==="INFERRED") return "yellow"; return "red"; }
+  if(state.blast.has(nodeId)) return "yellow";
+  return "gray";
+}
+function buildFindings(findings){
+  state.findingByNode=new Map(); state.blast=new Set();
+  state.hasFindings = Array.isArray(findings) && findings.length>0;
+  for(const f of (findings||[])){
+    for(const ref of f.nodeRefs) if(!state.findingByNode.has(ref)) state.findingByNode.set(ref,f);
+    if(f.kind==="weakness") (f.blastRadius||[]).forEach(id=>state.blast.add(id));
+  }
+}
+function asiClass(id){ return (state.asi&&state.asi.classes||[]).find(c=>c.id===id); }
+
+function doneKey(){ return "atlas-done:"+(state.graph&&state.graph.revision||"g"); }
+function loadDone(){ try{ const r=localStorage.getItem(doneKey()); state.completed=new Set(r?JSON.parse(r):[]); }catch{ state.completed=new Set(); } }
+function saveDone(){ try{ localStorage.setItem(doneKey(),JSON.stringify([...state.completed])); }catch{} }
+
+let FG = null;
+
+function indexGraph(g){
+  state.byId = new Map(g.nodes.map(n=>[n.id,n]));
+  const nbr = new Map(g.nodes.map(n=>[n.id,{callsOut:[],callsIn:[],importsOut:[],importsIn:[],contains:[],container:null}]));
+  for(const e of g.edges){
+    if(!nbr.has(e.from)||!nbr.has(e.to)) continue;
+    if(e.kind==="calls"){ nbr.get(e.from).callsOut.push(e.to); nbr.get(e.to).callsIn.push(e.from); }
+    else if(e.kind==="imports"){ nbr.get(e.from).importsOut.push(e.to); nbr.get(e.to).importsIn.push(e.from); }
+    else if(e.kind==="contains"){ nbr.get(e.from).contains.push(e.to); nbr.get(e.to).container=e.from; }
+  }
+  state.nbr = nbr;
+}
+
+function fgData(){
+  const g = state.graph;
+  const links = g.edges
+    .filter(e=>state.filters[e.kind] && state.byId.has(e.from) && state.byId.has(e.to))
+    .map(e=>({ source:e.from, target:e.to, kind:e.kind, id:e.id }));
+  const nodes = g.nodes.map(n=>({ id:n.id, kind:n.kind, label:n.label, ref:n }));
+  return { nodes, links };
+}
+
+function nodeColor(node){
+  if(state.mode==="security") return css(state.hasFindings ? GRADECSS[gradeOf(node.id)] : "--grade-gray");
+  if(state.mode==="learn" && state.selected){
+    const near = neighborsOf(state.selected);
+    if(node.id!==state.selected && !near.has(node.id)) return dim(KIND_COLOR(node.kind));
+  }
+  if(state.selected===node.id) return css("--accent");
+  return KIND_COLOR(node.kind);
+}
+function linkColor(link){
+  const base = css(EDGE_COLOR[link.kind]||"--edge");
+  if(state.mode==="learn" && state.selected){
+    const s = srcId(link.source), t = srcId(link.target);
+    if(s!==state.selected && t!==state.selected) return dim(base);
+  }
+  return base;
+}
+function dim(hex){ // fade a hex color toward the background for the "Learn" focus effect
+  return "color-mix(in srgb,"+hex+" 22%, transparent)";
+}
+function srcId(x){ return typeof x==="object" ? x.id : x; }
+
+function neighborsOf(id){
+  const n = state.nbr.get(id); const s = new Set();
+  if(!n) return s;
+  [...n.callsOut,...n.callsIn,...n.importsOut,...n.importsIn,...n.contains].forEach(x=>s.add(x));
+  if(n.container) s.add(n.container);
+  return s;
+}
+
+function render(){
+  const d = fgData();
+  FG.graphData(d);
+  FG.nodeColor(nodeColor).linkColor(linkColor);
+}
+
+/* ---- Inspector: plain-language DEFAULT, evidence BEHIND a toggle. --------- */
+function labelFor(id){ const n=state.byId.get(id); return n?n.label:id; }
+
+function plainText(n){
+  const nb = state.nbr.get(n.id)||{};
+  if(n.kind==="file"){
+    const fns = (nb.contains||[]).length;
+    const imp = (nb.importsOut||[]).length, impBy=(nb.importsIn||[]).length;
+    let s = `This is a source file`;
+    s += fns ? ` holding ${fns} function${fns===1?"":"s"}.` : `.`;
+    if(imp||impBy){
+      s += ` It imports ${imp} file${imp===1?"":"s"} and is imported by ${impBy}.`;
+    }
+    return s;
+  }
+  const cin=(nb.callsIn||[]).length, cout=(nb.callsOut||[]).length;
+  const where = nb.container ? ` in ${labelFor(nb.container)}` : "";
+  let s = `This is a function${where}.`;
+  if(cin||cout) s += ` It is called by ${cin} place${cin===1?"":"s"} and calls ${cout} other function${cout===1?"":"s"}.`;
+  else s += ` No call relationships were resolved for it.`;
+  return s;
+}
+function roleText(n){
+  const nb = state.nbr.get(n.id)||{};
+  if(n.kind==="function" && (nb.callsIn||[]).length===0 && nb.container)
+    return "No resolved callers — it may be an entry point, a callback, or called dynamically (which static analysis cannot see).";
+  if(n.kind==="file" && (nb.importsIn||[]).length===0)
+    return "Nothing in the analysed graph imports this file — it may be an entry point.";
+  return "";
+}
+
+function connRows(n){
+  const nb = state.nbr.get(n.id)||{};
+  const row = (lab, ids)=> ids && ids.length
+    ? `<div class="conn-row"><span class="lab">${lab}</span><span class="vals">${
+        ids.map(id=>`<b data-goto="${id}">${esc(labelFor(id))}</b>`).join(", ")}</span></div>` : "";
+  let out = "";
+  if(n.kind==="file"){
+    out += row("contains", nb.contains);
+    out += row("imports", nb.importsOut);
+    out += row("imported by", nb.importsIn);
+  }else{
+    if(nb.container) out += row("in file", [nb.container]);
+    out += row("called by", nb.callsIn);
+    out += row("calls", nb.callsOut);
+  }
+  return out || `<div class="conn-row"><span class="vals" style="color:var(--fg-faint)">No resolved connections.</span></div>`;
+}
+
+function evidenceGrid(n){
+  const e = n.evidence||{};
+  const rows = [
+    ["path", e.path], ["line", e.line], ["column", e.column],
+    ["revision", e.revision], ["hash", e.contentHash],
+    ["method", e.method], ["status", e.status],
+  ].filter(r=>r[1]!==undefined && r[1]!==null);
+  return rows.map(([k,v])=>`<div><span class="ek">${k}</span><span class="ev">${esc(String(v))}</span></div>`).join("");
+}
+
+function openInspector(id){
+  const n = state.byId.get(id); if(!n) return;
+  state.selected = id;
+  const insp = document.getElementById("inspector");
+  document.getElementById("inspKind").textContent = (n.kind==="file"?"SOURCE FILE":"FUNCTION")+" · SOURCE RECORD";
+  document.getElementById("inspTitle").textContent = n.label;
+  const dot = document.getElementById("inspDot");
+  dot.style.background = state.mode==="security"
+    ? css(state.hasFindings ? GRADECSS[gradeOf(n.id)] : "--grade-gray")
+    : KIND_COLOR(n.kind);
+
+  const security = state.mode==="security";
+  const role = roleText(n);
+  const body = `
+    <p class="plain">${esc(plainText(n))}</p>
+    ${role?`<p class="role">${esc(role)}</p>`:""}
+    <div class="connects"><h3>Connected components</h3>${connRows(n)}</div>
+    ${sourceSection(n)}
+    ${security?securitySection(n):""}
+    <div class="lessons"><h3>Course</h3><div id="lessonSlot"></div></div>
+    <div class="evidence" id="evidence">
+      <div class="ev-toggle" id="evToggle" role="button" tabindex="0" aria-expanded="false">
+        <span class="caret">▶</span> Show evidence (source provenance)
+      </div>
+      <div class="ev-grid">${evidenceGrid(n)}</div>
+    </div>`;
+  const bodyEl = document.getElementById("inspBody");
+  bodyEl.innerHTML = body;
+  insp.classList.add("open");
+
+  bodyEl.querySelectorAll("[data-goto]").forEach(b=>b.addEventListener("click",()=>{
+    const t=b.getAttribute("data-goto"); focusNode(t); openInspector(t);
+  }));
+  renderLesson(n.id);
+  wireSource();
+
+  const evWrap=document.getElementById("evidence"), evTog=document.getElementById("evToggle");
+  const toggle=()=>{ const open=evWrap.classList.toggle("open"); evTog.setAttribute("aria-expanded",open); };
+  evTog.addEventListener("click",toggle);
+  evTog.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();} });
+
+  render();
+}
+function closeInspector(){ state.selected=null; document.getElementById("inspector").classList.remove("open"); render(); }
+
+/* ---- Source section: the actual code for the selected node, line-tagged ---*/
+function sourceSection(n){
+  const code = state.sources.get(n.evidence.path);
+  if(!code) return "";
+  const lines = code.split("\n");
+  const target = n.evidence.line||1;
+  let start, end;
+  if(n.kind==="function"){ start=Math.max(1,target-1); end=Math.min(lines.length, start+48); }
+  else { start=1; end=Math.min(lines.length, 200); }
+  const rows = lines.slice(start-1,end).map((ln,i)=>{
+    const no=start+i, hot=no===target;
+    return `<div class="src-line${hot?' hot':''}"><span class="src-no">${no}</span><span class="src-code">${esc(ln)||" "}</span></div>`;
+  }).join("");
+  const more = end<lines.length ? `<div class="src-more">… ${lines.length-end} more lines</div>` : "";
+  const f = state.findingByNode.get(n.id);
+  const tag = (state.mode==="security" && f) ? `<span class="src-tag" style="background:var(${GRADECSS[gradeOf(n.id)]})">${f.kind==="control"?"CONTROL":f.grade}</span>` : "";
+  return `<div class="srcwrap" id="srcwrap">
+    <div class="src-toggle" id="srcToggle" role="button" tabindex="0" aria-expanded="false">
+      <span class="caret">▶</span> View source <span class="src-path">${esc(n.evidence.path)}:${target}</span> ${tag}
+    </div>
+    <div class="src"><div class="src-inner">${rows}${more}</div></div></div>`;
+}
+function wireSource(){
+  const wrap=document.getElementById("srcwrap"); if(!wrap) return;
+  const tog=document.getElementById("srcToggle");
+  const toggle=()=>{ const open=wrap.classList.toggle("open"); tog.setAttribute("aria-expanded",open);
+    if(open){ const hot=wrap.querySelector(".src-line.hot"); if(hot) hot.scrollIntoView({block:"center"}); } };
+  tog.addEventListener("click",toggle);
+  tog.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();} });
+}
+
+/* ---- Security section: color-graded finding + ASI context + live link -----*/
+const GRADE_LABEL = { red:"WEAKNESS", yellow:"POSSIBLY AFFECTED", green:"HARDENED CONTROL", gray:"UNASSESSED" };
+function asiStamp(){
+  if(!state.asi) return "";
+  return `<p class="asi-stamp">ASI ${esc(state.asi.revision)} · snapshot as of ${esc(state.asi.asOf)} · the live link is the source of truth.</p>`;
+}
+function asiLink(ref){
+  if(!ref) return "";
+  const cls = asiClass(ref.id);
+  const mit = cls ? `<p class="asi-mit">${esc(cls.mitigation)}</p>` : "";
+  return `<div class="asi"><span class="asi-id">${esc(ref.id)}</span> <a class="asi-a" href="${encodeURI(ref.url)}" target="_blank" rel="noopener">${esc(ref.label)} ↗</a>${mit}</div>`;
+}
+function securitySection(n){
+  if(!state.hasFindings){
+    return `<div class="note security"><b>Unassessed.</b> No validated security findings are attached to this graph, so every component is grey. A dependency link alone does not establish that a weakness here can reach anything else.</div>`;
+  }
+  const f = state.findingByNode.get(n.id);
+  const g = gradeOf(n.id);
+  if(f){
+    const affected = (f.kind==="weakness" && f.blastRadius && f.blastRadius.length)
+      ? `<div class="conn-row"><span class="lab">may affect</span><span class="vals">${f.blastRadius.map(id=>`<b data-goto="${id}">${esc(labelFor(id))}</b>`).join(", ")}</span></div>` : "";
+    return `<div class="sec">
+      <div class="sec-head"><span class="grade-pill" style="background:var(${GRADECSS[g]})">${GRADE_LABEL[g]}</span><span class="grade-ev">${esc(f.grade)}</span></div>
+      <p class="sec-title">${esc(f.title)}</p>
+      <p class="sec-expl">${esc(f.explanation)}</p>
+      ${affected}
+      ${asiLink(f.asiRef)}
+      ${f.kind==="weakness"?`<p class="sec-note">A grade shows how this was verified here — not that an attacker can reach it. ${f.blastRadius&&f.blastRadius.length?"The affected components are shown as possibly-affected, not proven paths.":""}</p>`:`<p class="sec-note">Hardened does not mean universally safe — only that this control was evaluated against the stated threat.</p>`}
+      ${asiStamp()}</div>`;
+  }
+  if(state.blast.has(n.id)){
+    return `<div class="sec"><div class="sec-head"><span class="grade-pill" style="background:var(--grade-yellow)">POSSIBLY AFFECTED</span></div>
+      <p class="sec-expl">In the blast radius of a finding elsewhere. A dependency link does not establish that the weakness can actually reach this component — investigation warranted.</p>${asiStamp()}</div>`;
+  }
+  return `<div class="note security"><b>No finding on this component.</b> It was not flagged by the attached findings. Absence of a finding is not proof of safety.</div>`;
+}
+
+/* ---- grounded Break & Fix -------------------------------------------------*/
+function runChecks(code, checks){
+  const fails=[];
+  for(const c of (checks||[])){
+    let ok=true;
+    if(c.kind==="includes") ok = code.includes(c.value);
+    else if(c.kind==="excludes") ok = !code.includes(c.value);
+    else if(c.kind==="regex"){ try{ ok = new RegExp(c.value).test(code); }catch{ ok=false; } }
+    if(!ok) fails.push(c.message||"A check did not pass.");
+  }
+  return fails;
+}
+function renderLesson(nodeId){
+  const slot=document.getElementById("lessonSlot"); if(!slot) return;
+  const lesson=state.lessons.get(nodeId);
+  if(!lesson){
+    slot.innerHTML=`<p class="role" style="margin-top:0">No lesson attached to this component. Lessons attach by node id when a course bundle is loaded.</p>`;
+    return;
+  }
+  const done=state.completed.has(lesson.id);
+  const bf=lesson.breakAndFix;
+  slot.innerHTML=`
+    <p class="lesson-title">${esc(lesson.title)} ${done?'<span class="done-pill">✓ fixed</span>':''}</p>
+    <p class="teach">${esc(lesson.teach)}</p>
+    <div class="bf">
+      <div class="bf-head"><span class="bf-tag">⚡ Break &amp; Fix</span><span class="bf-file">${esc(bf.file)}</span></div>
+      <p class="bf-task">${esc(bf.task)}</p>
+      <textarea class="bf-code" id="bfCode" spellcheck="false" aria-label="Editable code to fix"></textarea>
+      <div class="bf-actions">
+        <button class="btn bf-check" id="bfCheck">Check fix</button>
+        <button class="btn" id="bfReset">Reset</button>
+        <button class="btn" id="bfSolve">Show fix</button>
+      </div>
+      <div class="bf-feedback" id="bfFeedback" hidden></div>
+      <p class="bf-note">Structure check — confirms the shape of your fix, not its runtime behaviour. The real build verifies this with the conformance checker.</p>
+    </div>`;
+  const ta=document.getElementById("bfCode"); ta.value=bf.broken;
+  const fb=document.getElementById("bfFeedback");
+  document.getElementById("bfReset").addEventListener("click",()=>{ ta.value=bf.broken; fb.hidden=true; });
+  document.getElementById("bfSolve").addEventListener("click",()=>{ ta.value=bf.solution; fb.hidden=true; });
+  document.getElementById("bfCheck").addEventListener("click",()=>{
+    const fails=runChecks(ta.value, bf.checks);
+    fb.hidden=false;
+    if(fails.length===0){
+      fb.className="bf-feedback pass";
+      fb.innerHTML="✓ Put back together. The structure matches what Atlas expects.";
+      state.completed.add(lesson.id); saveDone();
+      renderLesson(nodeId);
+    }else{
+      fb.className="bf-feedback fail";
+      fb.innerHTML="Not yet:<ul>"+fails.map(m=>`<li>${esc(m)}</li>`).join("")+"</ul>";
+    }
+  });
+}
+
+function focusNode(id){
+  const d = FG.graphData();
+  const node = d.nodes.find(n=>n.id===id); if(!node) return;
+  const dist = 90;
+  const r = Math.hypot(node.x||0,node.y||0,node.z||0) || 1;
+  const k = 1 + dist/r;
+  FG.cameraPosition({x:(node.x||0)*k,y:(node.y||0)*k,z:(node.z||0)*k}, node, 900);
+}
+
+/* ---- boot ----------------------------------------------------------------- */
+function loadGraph(raw, {sample=false}={}){
+  const norm = normalize(raw);
+  state.graph = norm.graph; state.isSample = sample;
+  indexGraph(norm.graph);
+  state.course = norm.course;
+  state.lessons = new Map(((norm.course&&norm.course.lessons)||[]).map(l=>[l.nodeId,l]));
+  state.asi = norm.asi;
+  state.sources = new Map(((norm.sources)||[]).map(s=>[s.path,s.code]));
+  buildFindings(norm.findings);
+  loadDone();
+  const name = norm.productName || PRODUCT.name;
+  document.getElementById("brandName").textContent = name;
+  document.getElementById("seal").textContent = PRODUCT.seal;
+  document.getElementById("brandRev").textContent = norm.label ? norm.label : (norm.revision||"");
+  document.getElementById("sampleBadge").hidden = !sample;
+  closeInspector();
+  render();
+  setTimeout(()=>FG.zoomToFit(600,80),400);
+}
+
+function buildFG(){
+  FG = ForceGraph3D()(document.getElementById("graph"))
+    .backgroundColor(css("--bg"))
+    .nodeRelSize(5)
+    .nodeVal(n=>n.kind==="file"?5:2.2)
+    .nodeOpacity(0.95)
+    .nodeLabel(n=>`<div style="font:12px/1.4 'IBM Plex Mono',monospace;color:#fff;background:#0b0f14cc;border:1px solid #2a3647;padding:4px 7px;border-radius:6px">
+        <b>${esc(n.label)}</b><br><span style="color:#9bb0c3">${n.kind}${state.lessons.has(n.id)?" · 📘 lesson":""}</span></div>`)
+    .nodeColor(nodeColor)
+    .linkColor(linkColor)
+    .linkWidth(l=>l.kind==="calls"?0.8:0.5)
+    .linkOpacity(0.5)
+    .linkDirectionalArrowLength(l=>l.kind==="contains"?0:3)
+    .linkDirectionalArrowRelPos(1)
+    .linkDirectionalParticles(l=>state.mode==="learn" && state.selected && (srcId(l.source)===state.selected||srcId(l.target)===state.selected)?2:0)
+    .linkDirectionalParticleWidth(1.6)
+    .onNodeClick(n=>{ focusNode(n.id); openInspector(n.id); })
+    .onBackgroundClick(()=>closeInspector())
+    .warmupTicks(40)
+    .cooldownTime(4000);
+  FG.d3Force("charge").strength(-120);
+}
+
+function applyMode(m){
+  state.mode=m;
+  document.querySelectorAll(".modes button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.mode===m)));
+  updateLegend();
+  if(state.selected) openInspector(state.selected); else render();
+}
+function updateLegend(){
+  const el=document.getElementById("legend"); if(!el) return;
+  if(state.mode==="security"){
+    el.innerHTML = state.hasFindings
+      ? `<span><i class="sq" style="background:var(--grade-red)"></i><b>weakness</b></span>
+         <span><i class="sq" style="background:var(--grade-yellow)"></i><b>possibly affected</b></span>
+         <span><i class="sq" style="background:var(--grade-green)"></i><b>hardened</b></span>
+         <span><i class="sq" style="background:var(--grade-gray)"></i><b>unassessed</b></span>`
+      : `<span><i class="sq" style="background:var(--grade-gray)"></i><b>unassessed — no findings attached</b></span>`;
+  } else {
+    el.innerHTML = `<span><i style="background:var(--file)"></i><b>file</b></span>
+      <span><i style="background:var(--func)"></i><b>function</b></span>
+      <span><span class="ln" style="border-color:var(--k-contains)"></span><b>contains</b></span>
+      <span><span class="ln" style="border-color:var(--k-imports)"></span><b>imports</b></span>
+      <span><span class="ln" style="border-color:var(--k-calls)"></span><b>calls</b></span>`;
+  }
+}
+
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* reduced motion: stop the gentle auto-settle spin quicker */
+const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+window.addEventListener("DOMContentLoaded",()=>{
+  if(typeof ForceGraph3D!=="function"){
+    document.getElementById("empty").hidden=false;
+    document.getElementById("empty").textContent="3D engine failed to load.";
+    return;
+  }
+  buildFG();
+  if(window.__ATLAS_BUNDLE__) loadGraph(window.__ATLAS_BUNDLE__,{sample:false});
+  else loadGraph(SAMPLE_BUNDLE,{sample:true});
+
+  document.getElementById("loadBtn").addEventListener("click",()=>document.getElementById("file").click());
+  document.getElementById("file").addEventListener("change",ev=>{
+    const f=ev.target.files[0]; if(!f) return;
+    const r=new FileReader();
+    r.onload=()=>{ try{ loadGraph(JSON.parse(r.result),{sample:false}); }
+      catch(err){ const b=document.getElementById("sampleBadge"); b.hidden=false;
+        b.style.color="var(--grade-red)"; b.textContent="Could not load: "+err.message; } };
+    r.readAsText(f);
+  });
+  document.getElementById("fitBtn").addEventListener("click",()=>FG.zoomToFit(600,80));
+  document.getElementById("inspClose").addEventListener("click",closeInspector);
+  document.querySelectorAll(".modes button").forEach(b=>b.addEventListener("click",()=>applyMode(b.dataset.mode)));
+  document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>{
+    const k=c.dataset.kind; state.filters[k]=!state.filters[k];
+    c.setAttribute("aria-pressed",String(state.filters[k])); render();
+  }));
+  const search=document.getElementById("search");
+  search.addEventListener("keydown",e=>{
+    if(e.key!=="Enter") return;
+    const q=search.value.trim().toLowerCase(); if(!q) return;
+    const hit=state.graph.nodes.find(n=>n.label.toLowerCase().includes(q)||(n.evidence&&n.evidence.path||"").toLowerCase().includes(q));
+    if(hit){ focusNode(hit.id); openInspector(hit.id); }
+  });
+
+  // theme
+  const themeBtn=document.getElementById("themeBtn");
+  themeBtn.addEventListener("click",()=>{
+    const cur=document.documentElement.getAttribute("data-theme");
+    const sysDark=window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const next = cur ? (cur==="dark"?"light":"dark") : (sysDark?"light":"dark");
+    document.documentElement.setAttribute("data-theme",next);
+    FG.backgroundColor(css("--bg")); render();
+  });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{
+    if(!document.documentElement.getAttribute("data-theme")){ FG.backgroundColor(css("--bg")); render(); }
+  });
+
+  window.addEventListener("resize",()=>{ FG.width(window.innerWidth).height(window.innerHeight); });
+});
+</script>

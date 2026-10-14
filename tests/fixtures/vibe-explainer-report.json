@@ -1,0 +1,2036 @@
+{
+  "metadata": {
+    "tool": "vibe-explainer",
+    "version": "0.2.0a1",
+    "schema_version": "2.0",
+    "repository": "analyst-review-fixture",
+    "repository_path": "/home/claude/holeyfield33-art/vibe-explainer/examples/analyst-review-fixture",
+    "assessment_completeness": "COMPLETE",
+    "experimental_scoring_enabled": false,
+    "repository_revision": {
+      "commit": "5adbd44bd18353de7c09844a01f563e55cd33dd4",
+      "branch": "main",
+      "dirty": false,
+      "available": true
+    },
+    "scan_configuration": {
+      "max_files": 20000,
+      "max_bytes": 200000000,
+      "max_seconds": 120.0,
+      "excluded_paths": [],
+      "experimental_scoring": false,
+      "asi_catalog_supplied": false
+    },
+    "asi_catalog": {
+      "supplied": false,
+      "source_hash": null,
+      "version": null
+    },
+    "scan_scope": {
+      "files_discovered": 4,
+      "files_inspected": 4,
+      "files_skipped": 0,
+      "bytes_inspected": 2160,
+      "elapsed_seconds": 0.059168,
+      "budget_exhausted_reason": null,
+      "inventory_complete": true,
+      "exclusions_applied": [],
+      "skipped_reasons": {},
+      "parse_failures": [],
+      "unsupported_extensions": [
+        ".md"
+      ],
+      "scope_note": "Discovered counts cover visited directories only; inspected means content read, not every analysis stage completed. Absence of evidence outside inspected scope is not evidence of absence."
+    },
+    "evidence_counts": {
+      "ai_evidence_items": 23,
+      "attack_surface_leads": 23,
+      "control_observations": 9
+    }
+  },
+  "assessment_manifest": {
+    "engine": "vibe-explainer",
+    "engine_version": "0.2.0a1",
+    "schema_version": "2.0",
+    "repository_revision": {
+      "commit": "5adbd44bd18353de7c09844a01f563e55cd33dd4",
+      "branch": "main",
+      "dirty": false,
+      "available": true
+    },
+    "assessment_completeness": "COMPLETE",
+    "scan_configuration": {
+      "max_files": 20000,
+      "max_bytes": 200000000,
+      "max_seconds": 120.0,
+      "excluded_paths": [],
+      "experimental_scoring": false,
+      "asi_catalog_supplied": false
+    },
+    "repository": "analyst-review-fixture",
+    "scan_scope": {
+      "files_discovered": 4,
+      "files_inspected": 4,
+      "files_skipped": 0,
+      "bytes_inspected": 2160,
+      "elapsed_seconds": 0.059168,
+      "budget_exhausted_reason": null,
+      "inventory_complete": true,
+      "exclusions_applied": [],
+      "skipped_reasons": {},
+      "parse_failures": [],
+      "unsupported_extensions": [
+        ".md"
+      ],
+      "scope_note": "Discovered counts cover visited directories only; inspected means content read, not every analysis stage completed. Absence of evidence outside inspected scope is not evidence of absence."
+    },
+    "evidence_counts": {
+      "ai_evidence_items": 23,
+      "attack_surface_leads": 23,
+      "control_observations": 9
+    },
+    "asi_catalog": {
+      "supplied": false,
+      "source_hash": null,
+      "version": null
+    }
+  },
+  "executive_summary": {
+    "ai_surface": "DETECTED",
+    "risk_scenario_count": 5,
+    "assessment_completeness": "COMPLETE",
+    "total_findings": 23,
+    "production_findings": 23,
+    "defaulted_production_findings": 23,
+    "findings_by_context": {
+      "PRODUCTION": 23
+    },
+    "statement": "5 static concern scenario(s) generated from repository evidence. Concern scenarios are unscored and process evidence is reported as a checklist."
+  },
+  "ai_inventory": {
+    "categories": {
+      "ai_usage": [
+        {
+          "id": "1675d519d36b",
+          "file": "app.py",
+          "line": 11,
+          "name": "Chat/completions call",
+          "evidence": "response = client.chat.completions.create(",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "2bdfba6fe5c4",
+          "file": "retrieval.py",
+          "line": 4,
+          "name": "LangChain",
+          "evidence": "from langchain_chroma import Chroma",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "b09fdf2a9005",
+          "file": "retrieval.py",
+          "line": 13,
+          "name": "Chat/completions call",
+          "evidence": "response = client.messages.create(",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "657e25ab4d59",
+          "file": "tools.py",
+          "line": 3,
+          "name": "LangChain",
+          "evidence": "from langchain_core.tools import tool",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "e82968895937",
+          "file": "tools.py",
+          "line": 14,
+          "name": "Chat/completions call",
+          "evidence": "response = client.chat.completions.create(",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        }
+      ],
+      "mcp": [
+        {
+          "id": "d32118d9adae",
+          "file": "tools.py",
+          "line": 7,
+          "name": "FastMCP server",
+          "evidence": "mcp = FastMCP(\"synthetic-review\")",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "8ce6e4f73c09",
+          "file": "tools.py",
+          "line": 12,
+          "name": "FastMCP server",
+          "evidence": "@mcp.tool()",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        }
+      ],
+      "model_provider": [
+        {
+          "id": "5a8477454d81",
+          "file": "app.py",
+          "line": 4,
+          "name": "OpenAI",
+          "evidence": "from openai import OpenAI",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "899070746bbb",
+          "file": "app.py",
+          "line": 7,
+          "name": "OpenAI",
+          "evidence": "client = OpenAI(api_key=[REDACTED]",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "2836c44b0548",
+          "file": "retrieval.py",
+          "line": 3,
+          "name": "Anthropic",
+          "evidence": "from anthropic import Anthropic",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "763b3032487a",
+          "file": "retrieval.py",
+          "line": 6,
+          "name": "Anthropic",
+          "evidence": "client = Anthropic(api_key=[REDACTED]",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "dc572e422882",
+          "file": "tools.py",
+          "line": 5,
+          "name": "OpenAI",
+          "evidence": "from openai import OpenAI",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "63ba111b705d",
+          "file": "tools.py",
+          "line": 8,
+          "name": "OpenAI",
+          "evidence": "client = OpenAI()",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        }
+      ],
+      "prompt_surface": [
+        {
+          "id": "e6d154dd3e9e",
+          "file": "app.py",
+          "line": 6,
+          "name": "System prompt variable",
+          "evidence": "SYSTEM_PROMPT = \"Answer only from appro…",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "cf63c6d4de25",
+          "file": "retrieval.py",
+          "line": 12,
+          "name": "Prompt template",
+          "evidence": "prompt_template = f\"Use the retrieved con…",
+          "confidence": "moderate",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        }
+      ],
+      "rag_retrieval": [
+        {
+          "id": "082e80dbd0db",
+          "file": "retrieval.py",
+          "line": 7,
+          "name": "Chroma",
+          "evidence": "store = Chroma(collection_name=\"approve…",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "738a41f21d60",
+          "file": "retrieval.py",
+          "line": 11,
+          "name": "Vector store / retriever",
+          "evidence": "documents = store.similarity_search(question)",
+          "confidence": "moderate",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        }
+      ],
+      "secret_config": [
+        {
+          "id": "598558cedc07",
+          "file": "app.py",
+          "line": 7,
+          "name": "Env-based credential reference",
+          "evidence": "os.getenv(\"OPENAI_API_KEY\"",
+          "confidence": "moderate",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "e335b2eef075",
+          "file": "app.py",
+          "line": 7,
+          "name": "Model API key env var",
+          "evidence": "OPENAI_API_KEY",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "72cb49770e7a",
+          "file": "retrieval.py",
+          "line": 6,
+          "name": "Model API key env var",
+          "evidence": "ANTHROPIC_API_KEY",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "d92a05bcd372",
+          "file": "retrieval.py",
+          "line": 6,
+          "name": "Env-based credential reference",
+          "evidence": "os.getenv(\"ANTHROPIC_API_KEY\"",
+          "confidence": "moderate",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        }
+      ],
+      "tool_agent": [
+        {
+          "id": "1fe5f555c15e",
+          "file": "tools.py",
+          "line": 11,
+          "name": "Tool/function decorator",
+          "evidence": "@tool",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        },
+        {
+          "id": "d04ad9032236",
+          "file": "tools.py",
+          "line": 24,
+          "name": "Shell execution",
+          "evidence": "return subprocess.run(response.choices[0].mess…",
+          "confidence": "high",
+          "context": "PRODUCTION",
+          "context_confidence": "moderate",
+          "context_defaulted": true,
+          "evidence_basis": "PYTHON_AST",
+          "supports_conclusions": true
+        }
+      ]
+    },
+    "analysis_coverage": {
+      "supported_languages": [
+        "python",
+        "structured_config"
+      ],
+      "supported_constructs": [
+        "python imports",
+        "python calls",
+        "python assignments",
+        "python decorators",
+        "JSON/YAML/TOML/env configuration artifacts"
+      ],
+      "authoritative_findings": 23,
+      "unsupported_lexical_leads": 0,
+      "unresolved_findings": 0,
+      "note": "Python findings are syntax-gated and configuration artifacts are lexical. Other-language matches are leads only and cannot drive conclusions."
+    },
+    "truncated": [],
+    "truncation_notice": null
+  },
+  "attack_surface": {
+    "inputs": [
+      {
+        "component": "prompt_surface/System prompt variable",
+        "file": "app.py",
+        "line": 6,
+        "evidence": "SYSTEM_PROMPT = \"Answer only from appro…",
+        "confidence": "high",
+        "finding_id": "e6d154dd3e9e",
+        "security_relevance": "User- or template-influenced prompt construction — check whether untrusted input reaches this without sanitization (prompt-injection surface).",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "prompt_surface/Prompt template",
+        "file": "retrieval.py",
+        "line": 12,
+        "evidence": "prompt_template = f\"Use the retrieved con…",
+        "confidence": "moderate",
+        "finding_id": "cf63c6d4de25",
+        "security_relevance": "User- or template-influenced prompt construction — check whether untrusted input reaches this without sanitization (prompt-injection surface).",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      }
+    ],
+    "model": [
+      {
+        "component": "model_provider/OpenAI",
+        "file": "app.py",
+        "line": 4,
+        "evidence": "from openai import OpenAI",
+        "confidence": "high",
+        "finding_id": "5a8477454d81",
+        "security_relevance": "Establishes which model/provider handles data — determines where prompts and context are sent.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "model_provider/OpenAI",
+        "file": "app.py",
+        "line": 7,
+        "evidence": "client = OpenAI(api_key=[REDACTED]",
+        "confidence": "high",
+        "finding_id": "899070746bbb",
+        "security_relevance": "Establishes which model/provider handles data — determines where prompts and context are sent.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "ai_usage/Chat/completions call",
+        "file": "app.py",
+        "line": 11,
+        "evidence": "response = client.chat.completions.create(",
+        "confidence": "high",
+        "finding_id": "1675d519d36b",
+        "security_relevance": "Marks where the application actually invokes a model — the core input/output boundary to review.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "model_provider/Anthropic",
+        "file": "retrieval.py",
+        "line": 3,
+        "evidence": "from anthropic import Anthropic",
+        "confidence": "high",
+        "finding_id": "2836c44b0548",
+        "security_relevance": "Establishes which model/provider handles data — determines where prompts and context are sent.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "ai_usage/LangChain",
+        "file": "retrieval.py",
+        "line": 4,
+        "evidence": "from langchain_chroma import Chroma",
+        "confidence": "high",
+        "finding_id": "2bdfba6fe5c4",
+        "security_relevance": "Marks where the application actually invokes a model — the core input/output boundary to review.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "model_provider/Anthropic",
+        "file": "retrieval.py",
+        "line": 6,
+        "evidence": "client = Anthropic(api_key=[REDACTED]",
+        "confidence": "high",
+        "finding_id": "763b3032487a",
+        "security_relevance": "Establishes which model/provider handles data — determines where prompts and context are sent.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "ai_usage/Chat/completions call",
+        "file": "retrieval.py",
+        "line": 13,
+        "evidence": "response = client.messages.create(",
+        "confidence": "high",
+        "finding_id": "b09fdf2a9005",
+        "security_relevance": "Marks where the application actually invokes a model — the core input/output boundary to review.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "ai_usage/LangChain",
+        "file": "tools.py",
+        "line": 3,
+        "evidence": "from langchain_core.tools import tool",
+        "confidence": "high",
+        "finding_id": "657e25ab4d59",
+        "security_relevance": "Marks where the application actually invokes a model — the core input/output boundary to review.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "model_provider/OpenAI",
+        "file": "tools.py",
+        "line": 5,
+        "evidence": "from openai import OpenAI",
+        "confidence": "high",
+        "finding_id": "dc572e422882",
+        "security_relevance": "Establishes which model/provider handles data — determines where prompts and context are sent.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "model_provider/OpenAI",
+        "file": "tools.py",
+        "line": 8,
+        "evidence": "client = OpenAI()",
+        "confidence": "high",
+        "finding_id": "63ba111b705d",
+        "security_relevance": "Establishes which model/provider handles data — determines where prompts and context are sent.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "ai_usage/Chat/completions call",
+        "file": "tools.py",
+        "line": 14,
+        "evidence": "response = client.chat.completions.create(",
+        "confidence": "high",
+        "finding_id": "e82968895937",
+        "security_relevance": "Marks where the application actually invokes a model — the core input/output boundary to review.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      }
+    ],
+    "retrieval": [
+      {
+        "component": "rag_retrieval/Chroma",
+        "file": "retrieval.py",
+        "line": 7,
+        "evidence": "store = Chroma(collection_name=\"approve…",
+        "confidence": "high",
+        "finding_id": "082e80dbd0db",
+        "security_relevance": "Retrieved content is likely concatenated into model context — check for retrieval poisoning / instructions embedded in retrieved documents.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "rag_retrieval/Vector store / retriever",
+        "file": "retrieval.py",
+        "line": 11,
+        "evidence": "documents = store.similarity_search(question)",
+        "confidence": "moderate",
+        "finding_id": "738a41f21d60",
+        "security_relevance": "Retrieved content is likely concatenated into model context — check for retrieval poisoning / instructions embedded in retrieved documents.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      }
+    ],
+    "tools": [
+      {
+        "component": "mcp/FastMCP server",
+        "file": "tools.py",
+        "line": 7,
+        "evidence": "mcp = FastMCP(\"synthetic-review\")",
+        "confidence": "high",
+        "finding_id": "d32118d9adae",
+        "security_relevance": "MCP tool/server surface — review the tool's JSON schema, side effects, and whether permissions default-deny.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "tool_agent/Tool/function decorator",
+        "file": "tools.py",
+        "line": 11,
+        "evidence": "@tool",
+        "confidence": "high",
+        "finding_id": "1fe5f555c15e",
+        "security_relevance": "Model-invoked or agent-invoked action — check authorization scope and whether a human approves high-risk calls.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "mcp/FastMCP server",
+        "file": "tools.py",
+        "line": 12,
+        "evidence": "@mcp.tool()",
+        "confidence": "high",
+        "finding_id": "8ce6e4f73c09",
+        "security_relevance": "MCP tool/server surface — review the tool's JSON schema, side effects, and whether permissions default-deny.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "tool_agent/Shell execution",
+        "file": "tools.py",
+        "line": 24,
+        "evidence": "return subprocess.run(response.choices[0].mess…",
+        "confidence": "high",
+        "finding_id": "d04ad9032236",
+        "security_relevance": "Direct shell/command execution reachable in this file — high blast radius if inputs here trace back to model output or user input.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      }
+    ],
+    "outputs": [],
+    "storage": [
+      {
+        "component": "secret_config/Env-based credential reference",
+        "file": "app.py",
+        "line": 7,
+        "evidence": "os.getenv(\"OPENAI_API_KEY\"",
+        "confidence": "moderate",
+        "finding_id": "598558cedc07",
+        "security_relevance": "Credential material or reference — verify it isn't logged, echoed into model context, or committed in plaintext.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "secret_config/Model API key env var",
+        "file": "app.py",
+        "line": 7,
+        "evidence": "OPENAI_API_KEY",
+        "confidence": "high",
+        "finding_id": "e335b2eef075",
+        "security_relevance": "Credential material or reference — verify it isn't logged, echoed into model context, or committed in plaintext.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "secret_config/Model API key env var",
+        "file": "retrieval.py",
+        "line": 6,
+        "evidence": "ANTHROPIC_API_KEY",
+        "confidence": "high",
+        "finding_id": "72cb49770e7a",
+        "security_relevance": "Credential material or reference — verify it isn't logged, echoed into model context, or committed in plaintext.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      },
+      {
+        "component": "secret_config/Env-based credential reference",
+        "file": "retrieval.py",
+        "line": 6,
+        "evidence": "os.getenv(\"ANTHROPIC_API_KEY\"",
+        "confidence": "moderate",
+        "finding_id": "d92a05bcd372",
+        "security_relevance": "Credential material or reference — verify it isn't logged, echoed into model context, or committed in plaintext.",
+        "context": "PRODUCTION",
+        "context_defaulted": true,
+        "evidence_basis": "PYTHON_AST",
+        "supports_conclusions": true
+      }
+    ]
+  },
+  "data_flows": [
+    {
+      "source": "prompt_surface",
+      "relationship": "feeds_prompt",
+      "destination": "ai_usage",
+      "confidence": "high",
+      "status": "STRUCTURALLY_INFERRED",
+      "file": "app.py",
+      "source_line": 6,
+      "destination_line": 11,
+      "resolution_method": "PYTHON_DEF_USE",
+      "source_file": "app.py",
+      "destination_file": "app.py",
+      "evidence": "Bounded structural relationship via SHARED_DEF_USE: SYSTEM_PROMPT."
+    },
+    {
+      "source": "secret_config",
+      "relationship": "reads_storage",
+      "destination": "model_provider",
+      "confidence": "high",
+      "status": "STRUCTURALLY_INFERRED",
+      "file": "app.py",
+      "source_line": 7,
+      "destination_line": 7,
+      "resolution_method": "PYTHON_DEF_USE",
+      "source_file": "app.py",
+      "destination_file": "app.py",
+      "evidence": "Bounded structural relationship via SAME_CALL_CONFIGURATION: same-call."
+    },
+    {
+      "source": "secret_config",
+      "relationship": "reads_storage",
+      "destination": "model_provider",
+      "confidence": "high",
+      "status": "STRUCTURALLY_INFERRED",
+      "file": "app.py",
+      "source_line": 7,
+      "destination_line": 7,
+      "resolution_method": "PYTHON_DEF_USE",
+      "source_file": "app.py",
+      "destination_file": "app.py",
+      "evidence": "Bounded structural relationship via SAME_CALL_CONFIGURATION: same-call."
+    },
+    {
+      "source": "secret_config",
+      "relationship": "reads_storage",
+      "destination": "model_provider",
+      "confidence": "high",
+      "status": "STRUCTURALLY_INFERRED",
+      "file": "retrieval.py",
+      "source_line": 6,
+      "destination_line": 6,
+      "resolution_method": "PYTHON_DEF_USE",
+      "source_file": "retrieval.py",
+      "destination_file": "retrieval.py",
+      "evidence": "Bounded structural relationship via SAME_CALL_CONFIGURATION: same-call."
+    },
+    {
+      "source": "secret_config",
+      "relationship": "reads_storage",
+      "destination": "ai_usage",
+      "confidence": "high",
+      "status": "STRUCTURALLY_INFERRED",
+      "file": "retrieval.py",
+      "source_line": 6,
+      "destination_line": 13,
+      "resolution_method": "PYTHON_DEF_USE",
+      "source_file": "retrieval.py",
+      "destination_file": "retrieval.py",
+      "evidence": "Bounded structural relationship via SHARED_DEF_USE: client."
+    },
+    {
+      "source": "secret_config",
+      "relationship": "reads_storage",
+      "destination": "model_provider",
+      "confidence": "high",
+      "status": "STRUCTURALLY_INFERRED",
+      "file": "retrieval.py",
+      "source_line": 6,
+      "destination_line": 6,
+      "resolution_method": "PYTHON_DEF_USE",
+      "source_file": "retrieval.py",
+      "destination_file": "retrieval.py",
+      "evidence": "Bounded structural relationship via SAME_CALL_CONFIGURATION: same-call."
+    },
+    {
+      "source": "secret_config",
+      "relationship": "reads_storage",
+      "destination": "ai_usage",
+      "confidence": "high",
+      "status": "STRUCTURALLY_INFERRED",
+      "file": "retrieval.py",
+      "source_line": 6,
+      "destination_line": 13,
+      "resolution_method": "PYTHON_DEF_USE",
+      "source_file": "retrieval.py",
+      "destination_file": "retrieval.py",
+      "evidence": "Bounded structural relationship via SHARED_DEF_USE: client."
+    },
+    {
+      "source": "rag_retrieval",
+      "relationship": "retrieved_context",
+      "destination": "ai_usage",
+      "confidence": "high",
+      "status": "STRUCTURALLY_INFERRED",
+      "file": "retrieval.py",
+      "source_line": 7,
+      "destination_line": 13,
+      "resolution_method": "PYTHON_DEF_USE",
+      "source_file": "retrieval.py",
+      "destination_file": "retrieval.py",
+      "evidence": "Bounded structural relationship via SHARED_DEF_USE: store."
+    },
+    {
+      "source": "rag_retrieval",
+      "relationship": "retrieved_context",
+      "destination": "ai_usage",
+      "confidence": "high",
+      "status": "STRUCTURALLY_INFERRED",
+      "file": "retrieval.py",
+      "source_line": 11,
+      "destination_line": 13,
+      "resolution_method": "PYTHON_DEF_USE",
+      "source_file": "retrieval.py",
+      "destination_file": "retrieval.py",
+      "evidence": "Bounded structural relationship via SHARED_DEF_USE: documents."
+    },
+    {
+      "source": "prompt_surface",
+      "relationship": "feeds_prompt",
+      "destination": "ai_usage",
+      "confidence": "high",
+      "status": "STRUCTURALLY_INFERRED",
+      "file": "retrieval.py",
+      "source_line": 12,
+      "destination_line": 13,
+      "resolution_method": "PYTHON_DEF_USE",
+      "source_file": "retrieval.py",
+      "destination_file": "retrieval.py",
+      "evidence": "Bounded structural relationship via SHARED_DEF_USE: prompt_template."
+    },
+    {
+      "source": "ai_usage",
+      "relationship": "flows_to_output",
+      "destination": "tool_agent",
+      "confidence": "high",
+      "status": "STRUCTURALLY_INFERRED",
+      "file": "tools.py",
+      "source_line": 14,
+      "destination_line": 24,
+      "resolution_method": "PYTHON_DEF_USE",
+      "source_file": "tools.py",
+      "destination_file": "tools.py",
+      "evidence": "Bounded structural relationship via SHARED_DEF_USE: response."
+    }
+  ],
+  "unresolved_relationships": [
+    {
+      "source_finding_id": "cf63c6d4de25",
+      "destination_finding_id": "1675d519d36b",
+      "relationship": "feeds_prompt",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "cf63c6d4de25",
+      "destination_finding_id": "2bdfba6fe5c4",
+      "relationship": "feeds_prompt",
+      "reason": "DIFFERENT_FUNCTION_SCOPE"
+    },
+    {
+      "source_finding_id": "cf63c6d4de25",
+      "destination_finding_id": "657e25ab4d59",
+      "relationship": "feeds_prompt",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "cf63c6d4de25",
+      "destination_finding_id": "e82968895937",
+      "relationship": "feeds_prompt",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e6d154dd3e9e",
+      "destination_finding_id": "2bdfba6fe5c4",
+      "relationship": "feeds_prompt",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e6d154dd3e9e",
+      "destination_finding_id": "657e25ab4d59",
+      "relationship": "feeds_prompt",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e6d154dd3e9e",
+      "destination_finding_id": "b09fdf2a9005",
+      "relationship": "feeds_prompt",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e6d154dd3e9e",
+      "destination_finding_id": "e82968895937",
+      "relationship": "feeds_prompt",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "1675d519d36b",
+      "destination_finding_id": "d04ad9032236",
+      "relationship": "flows_to_output",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "2bdfba6fe5c4",
+      "destination_finding_id": "d04ad9032236",
+      "relationship": "flows_to_output",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "657e25ab4d59",
+      "destination_finding_id": "d04ad9032236",
+      "relationship": "flows_to_output",
+      "reason": "SOURCE_VALUE_NOT_BOUND"
+    },
+    {
+      "source_finding_id": "b09fdf2a9005",
+      "destination_finding_id": "d04ad9032236",
+      "relationship": "flows_to_output",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "1675d519d36b",
+      "destination_finding_id": "1fe5f555c15e",
+      "relationship": "invokes_tool",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "2bdfba6fe5c4",
+      "destination_finding_id": "1fe5f555c15e",
+      "relationship": "invokes_tool",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "657e25ab4d59",
+      "destination_finding_id": "1fe5f555c15e",
+      "relationship": "invokes_tool",
+      "reason": "NO_ENCLOSING_STATEMENT"
+    },
+    {
+      "source_finding_id": "b09fdf2a9005",
+      "destination_finding_id": "1fe5f555c15e",
+      "relationship": "invokes_tool",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e82968895937",
+      "destination_finding_id": "1fe5f555c15e",
+      "relationship": "invokes_tool",
+      "reason": "DIFFERENT_FUNCTION_SCOPE"
+    },
+    {
+      "source_finding_id": "598558cedc07",
+      "destination_finding_id": "1675d519d36b",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_VALUE_OR_SYMBOL"
+    },
+    {
+      "source_finding_id": "598558cedc07",
+      "destination_finding_id": "2836c44b0548",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "598558cedc07",
+      "destination_finding_id": "2bdfba6fe5c4",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "598558cedc07",
+      "destination_finding_id": "5a8477454d81",
+      "relationship": "reads_storage",
+      "reason": "NON_DIRECTIONAL_ORDER"
+    },
+    {
+      "source_finding_id": "598558cedc07",
+      "destination_finding_id": "63ba111b705d",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "598558cedc07",
+      "destination_finding_id": "657e25ab4d59",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "598558cedc07",
+      "destination_finding_id": "763b3032487a",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "598558cedc07",
+      "destination_finding_id": "b09fdf2a9005",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "598558cedc07",
+      "destination_finding_id": "dc572e422882",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "598558cedc07",
+      "destination_finding_id": "e82968895937",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "72cb49770e7a",
+      "destination_finding_id": "1675d519d36b",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "72cb49770e7a",
+      "destination_finding_id": "2836c44b0548",
+      "relationship": "reads_storage",
+      "reason": "NON_DIRECTIONAL_ORDER"
+    },
+    {
+      "source_finding_id": "72cb49770e7a",
+      "destination_finding_id": "2bdfba6fe5c4",
+      "relationship": "reads_storage",
+      "reason": "NON_DIRECTIONAL_ORDER"
+    },
+    {
+      "source_finding_id": "72cb49770e7a",
+      "destination_finding_id": "5a8477454d81",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "72cb49770e7a",
+      "destination_finding_id": "63ba111b705d",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "72cb49770e7a",
+      "destination_finding_id": "657e25ab4d59",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "72cb49770e7a",
+      "destination_finding_id": "899070746bbb",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "72cb49770e7a",
+      "destination_finding_id": "dc572e422882",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "72cb49770e7a",
+      "destination_finding_id": "e82968895937",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "d92a05bcd372",
+      "destination_finding_id": "1675d519d36b",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "d92a05bcd372",
+      "destination_finding_id": "2836c44b0548",
+      "relationship": "reads_storage",
+      "reason": "NON_DIRECTIONAL_ORDER"
+    },
+    {
+      "source_finding_id": "d92a05bcd372",
+      "destination_finding_id": "2bdfba6fe5c4",
+      "relationship": "reads_storage",
+      "reason": "NON_DIRECTIONAL_ORDER"
+    },
+    {
+      "source_finding_id": "d92a05bcd372",
+      "destination_finding_id": "5a8477454d81",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "d92a05bcd372",
+      "destination_finding_id": "63ba111b705d",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "d92a05bcd372",
+      "destination_finding_id": "657e25ab4d59",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "d92a05bcd372",
+      "destination_finding_id": "899070746bbb",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "d92a05bcd372",
+      "destination_finding_id": "dc572e422882",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "d92a05bcd372",
+      "destination_finding_id": "e82968895937",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e335b2eef075",
+      "destination_finding_id": "1675d519d36b",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_VALUE_OR_SYMBOL"
+    },
+    {
+      "source_finding_id": "e335b2eef075",
+      "destination_finding_id": "2836c44b0548",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e335b2eef075",
+      "destination_finding_id": "2bdfba6fe5c4",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e335b2eef075",
+      "destination_finding_id": "5a8477454d81",
+      "relationship": "reads_storage",
+      "reason": "NON_DIRECTIONAL_ORDER"
+    },
+    {
+      "source_finding_id": "e335b2eef075",
+      "destination_finding_id": "63ba111b705d",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e335b2eef075",
+      "destination_finding_id": "657e25ab4d59",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e335b2eef075",
+      "destination_finding_id": "763b3032487a",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e335b2eef075",
+      "destination_finding_id": "b09fdf2a9005",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e335b2eef075",
+      "destination_finding_id": "dc572e422882",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "e335b2eef075",
+      "destination_finding_id": "e82968895937",
+      "relationship": "reads_storage",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "082e80dbd0db",
+      "destination_finding_id": "1675d519d36b",
+      "relationship": "retrieved_context",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "082e80dbd0db",
+      "destination_finding_id": "2bdfba6fe5c4",
+      "relationship": "retrieved_context",
+      "reason": "NON_DIRECTIONAL_ORDER"
+    },
+    {
+      "source_finding_id": "082e80dbd0db",
+      "destination_finding_id": "657e25ab4d59",
+      "relationship": "retrieved_context",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "082e80dbd0db",
+      "destination_finding_id": "e82968895937",
+      "relationship": "retrieved_context",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "738a41f21d60",
+      "destination_finding_id": "1675d519d36b",
+      "relationship": "retrieved_context",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "738a41f21d60",
+      "destination_finding_id": "2bdfba6fe5c4",
+      "relationship": "retrieved_context",
+      "reason": "DIFFERENT_FUNCTION_SCOPE"
+    },
+    {
+      "source_finding_id": "738a41f21d60",
+      "destination_finding_id": "657e25ab4d59",
+      "relationship": "retrieved_context",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    },
+    {
+      "source_finding_id": "738a41f21d60",
+      "destination_finding_id": "e82968895937",
+      "relationship": "retrieved_context",
+      "reason": "NO_SHARED_IMPORTED_SYMBOL"
+    }
+  ],
+  "controls": {
+    "by_status": {
+      "EVIDENCE_FOUND": [
+        {
+          "control_id": "C12",
+          "name": "High-Risk Action Controls",
+          "category": "HIGH_RISK_ACTIONS",
+          "confidence": "high",
+          "rationale": "Control evidence is structurally connected to every discovered high-risk action; runtime effectiveness remains unverified.",
+          "evidence": [
+            {
+              "type": "pattern",
+              "id": "b1fd5ffdbe6d",
+              "description": "Auth/permission check before action at tools.py:17 — \"if not check_permission(user, \"run\"):\""
+            },
+            {
+              "type": "pattern",
+              "id": "41a1dcf5ff61",
+              "description": "Sandbox/dry-run guard at tools.py:23 — \"with sandbox():\""
+            }
+          ],
+          "related_finding_ids": [
+            "d04ad9032236"
+          ],
+          "related_dataflow_ids": [
+            "e82968895937->d04ad9032236:flows_to_output"
+          ],
+          "artifact_status": "EVIDENCE_FOUND",
+          "enforcement_status": "STRUCTURALLY_CONNECTED",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": []
+        }
+      ],
+      "PARTIAL": [
+        {
+          "control_id": "C05",
+          "name": "Tool Authorization",
+          "category": "TOOL_AUTHORIZATION",
+          "confidence": "moderate",
+          "rationale": "Authorization evidence is structurally connected to 1 of 4 discovered tool-invocation surfaces; uncovered surfaces are listed individually.",
+          "evidence": [
+            {
+              "type": "pattern",
+              "id": "f3a8c8cc7fe8",
+              "description": "Explicit permission/authorization check at tools.py:17 — \"if not check_permission(user, \"run\"):\""
+            }
+          ],
+          "related_finding_ids": [
+            "1fe5f555c15e",
+            "8ce6e4f73c09",
+            "d04ad9032236",
+            "d32118d9adae"
+          ],
+          "related_dataflow_ids": [
+            "e82968895937->d04ad9032236:flows_to_output"
+          ],
+          "artifact_status": "EVIDENCE_FOUND",
+          "enforcement_status": "PARTIALLY_CONNECTED",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": [
+            "tool_agent/Tool/function decorator at tools.py:11 (1fe5f555c15e)",
+            "mcp/FastMCP server at tools.py:7 (d32118d9adae)",
+            "mcp/FastMCP server at tools.py:12 (8ce6e4f73c09)"
+          ]
+        },
+        {
+          "control_id": "C06",
+          "name": "Human Approval",
+          "category": "HUMAN_APPROVAL",
+          "confidence": "high",
+          "rationale": "Approval/confirmation-gate artifact evidence exists; structural enforcement was established for 1 of 4 discovered surfaces. Runtime effectiveness remains unverified.",
+          "evidence": [
+            {
+              "type": "pattern",
+              "id": "b3d18bc7f80d",
+              "description": "Explicit approval gate at tools.py:19 — \"if not human_approval(response):\""
+            }
+          ],
+          "related_finding_ids": [
+            "1fe5f555c15e",
+            "8ce6e4f73c09",
+            "d04ad9032236",
+            "d32118d9adae"
+          ],
+          "related_dataflow_ids": [],
+          "artifact_status": "EVIDENCE_FOUND",
+          "enforcement_status": "PARTIALLY_CONNECTED",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": [
+            "tool_agent/Tool/function decorator at tools.py:11 (1fe5f555c15e)",
+            "mcp/FastMCP server at tools.py:7 (d32118d9adae)",
+            "mcp/FastMCP server at tools.py:12 (8ce6e4f73c09)"
+          ]
+        },
+        {
+          "control_id": "C07",
+          "name": "Logging / Auditability",
+          "category": "LOGGING",
+          "confidence": "high",
+          "rationale": "AI/security-relevant audit logging artifact evidence exists; structural enforcement was established for 4 of 9 discovered surfaces. Runtime effectiveness remains unverified.",
+          "evidence": [
+            {
+              "type": "pattern",
+              "id": "a778c53ff014",
+              "description": "Audit-specific log call at tools.py:21 — \"audit_log(\"approved model action\")\""
+            }
+          ],
+          "related_finding_ids": [
+            "1675d519d36b",
+            "1fe5f555c15e",
+            "2bdfba6fe5c4",
+            "657e25ab4d59",
+            "8ce6e4f73c09",
+            "b09fdf2a9005",
+            "d04ad9032236",
+            "d32118d9adae",
+            "e82968895937"
+          ],
+          "related_dataflow_ids": [],
+          "artifact_status": "EVIDENCE_FOUND",
+          "enforcement_status": "PARTIALLY_CONNECTED",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": [
+            "ai_usage/Chat/completions call at app.py:11 (1675d519d36b)",
+            "ai_usage/Chat/completions call at retrieval.py:13 (b09fdf2a9005)",
+            "ai_usage/LangChain at retrieval.py:4 (2bdfba6fe5c4)",
+            "ai_usage/LangChain at tools.py:3 (657e25ab4d59)",
+            "mcp/FastMCP server at tools.py:7 (d32118d9adae)"
+          ]
+        },
+        {
+          "control_id": "C08",
+          "name": "Secret Management",
+          "category": "SECRET_MANAGEMENT",
+          "confidence": "moderate",
+          "rationale": "AI credentials are referenced via environment variables rather than hardcoded — reasonable evidence, though this alone doesn't confirm a dedicated secret manager/vault is in use.",
+          "evidence": [
+            {
+              "type": "finding",
+              "id": "598558cedc07",
+              "description": "Environment-variable-based credential reference: secret_config/Env-based credential reference at app.py:7"
+            },
+            {
+              "type": "finding",
+              "id": "72cb49770e7a",
+              "description": "Environment-variable-based credential reference: secret_config/Model API key env var at retrieval.py:6"
+            },
+            {
+              "type": "finding",
+              "id": "d92a05bcd372",
+              "description": "Environment-variable-based credential reference: secret_config/Env-based credential reference at retrieval.py:6"
+            },
+            {
+              "type": "finding",
+              "id": "e335b2eef075",
+              "description": "Environment-variable-based credential reference: secret_config/Model API key env var at app.py:7"
+            }
+          ],
+          "related_finding_ids": [
+            "598558cedc07",
+            "72cb49770e7a",
+            "d92a05bcd372",
+            "e335b2eef075"
+          ],
+          "related_dataflow_ids": [],
+          "artifact_status": "EVIDENCE_FOUND",
+          "enforcement_status": "NOT_ESTABLISHED",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": []
+        }
+      ],
+      "NOT_FOUND": [
+        {
+          "control_id": "C01",
+          "name": "AI Inventory",
+          "category": "AI_INVENTORY",
+          "confidence": "moderate",
+          "rationale": "AI components were discovered, but no inventory/architecture documentation (README/docs section or dedicated file) was found describing them. This does not mean no inventory exists — it may live outside scanned doc file types or in an external system.",
+          "evidence": [],
+          "related_finding_ids": [],
+          "related_dataflow_ids": [],
+          "artifact_status": "NOT_FOUND",
+          "enforcement_status": "NOT_ESTABLISHED",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": []
+        },
+        {
+          "control_id": "C02",
+          "name": "AI Threat Model",
+          "category": "THREAT_MODELING",
+          "confidence": "moderate",
+          "rationale": "AI components were discovered, but no threat-model or AI security architecture documentation was found. Generating an attack-surface report (this tool's own output) does not itself satisfy this control — the repository must document its own threat model.",
+          "evidence": [],
+          "related_finding_ids": [],
+          "related_dataflow_ids": [],
+          "artifact_status": "NOT_FOUND",
+          "enforcement_status": "NOT_ESTABLISHED",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": []
+        },
+        {
+          "control_id": "C03",
+          "name": "Input Handling",
+          "category": "INPUT_HANDLING",
+          "confidence": "moderate",
+          "rationale": "AI input surfaces (prompt construction / model invocation) were found, but no schema validation, sanitization, or explicit input-handling evidence was found.",
+          "evidence": [],
+          "related_finding_ids": [
+            "1675d519d36b",
+            "2bdfba6fe5c4",
+            "657e25ab4d59",
+            "b09fdf2a9005",
+            "cf63c6d4de25",
+            "e6d154dd3e9e",
+            "e82968895937"
+          ],
+          "related_dataflow_ids": [],
+          "artifact_status": "NOT_FOUND",
+          "enforcement_status": "NOT_ESTABLISHED",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": [
+            "ai_usage/Chat/completions call at app.py:11 (1675d519d36b)",
+            "ai_usage/Chat/completions call at retrieval.py:13 (b09fdf2a9005)",
+            "ai_usage/LangChain at retrieval.py:4 (2bdfba6fe5c4)",
+            "ai_usage/Chat/completions call at tools.py:14 (e82968895937)",
+            "ai_usage/LangChain at tools.py:3 (657e25ab4d59)",
+            "prompt_surface/System prompt variable at app.py:6 (e6d154dd3e9e)",
+            "prompt_surface/Prompt template at retrieval.py:12 (cf63c6d4de25)"
+          ]
+        },
+        {
+          "control_id": "C04",
+          "name": "Output Handling",
+          "category": "OUTPUT_HANDLING",
+          "confidence": "moderate",
+          "rationale": "AI usage was found, but no output validation/sanitization evidence was found. Model output was also observed (via Phase 3 data-flow) to reach a tool, shell, or external call, with no validation evidence in between.",
+          "evidence": [],
+          "related_finding_ids": [
+            "1675d519d36b",
+            "2bdfba6fe5c4",
+            "657e25ab4d59",
+            "b09fdf2a9005",
+            "e82968895937"
+          ],
+          "related_dataflow_ids": [
+            "e82968895937->d04ad9032236:flows_to_output"
+          ],
+          "artifact_status": "NOT_FOUND",
+          "enforcement_status": "NOT_ESTABLISHED",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": [
+            "ai_usage/Chat/completions call at app.py:11 (1675d519d36b)",
+            "ai_usage/Chat/completions call at retrieval.py:13 (b09fdf2a9005)",
+            "ai_usage/LangChain at retrieval.py:4 (2bdfba6fe5c4)",
+            "ai_usage/Chat/completions call at tools.py:14 (e82968895937)",
+            "ai_usage/LangChain at tools.py:3 (657e25ab4d59)"
+          ]
+        },
+        {
+          "control_id": "C09",
+          "name": "RAG / Retrieval Security",
+          "category": "RAG_SECURITY",
+          "confidence": "moderate",
+          "rationale": "Retrieval/RAG usage was found, but no source allowlisting, content filtering, or provenance-check evidence was found.",
+          "evidence": [],
+          "related_finding_ids": [
+            "082e80dbd0db",
+            "738a41f21d60"
+          ],
+          "related_dataflow_ids": [],
+          "artifact_status": "NOT_FOUND",
+          "enforcement_status": "NOT_ESTABLISHED",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": [
+            "rag_retrieval/Chroma at retrieval.py:7 (082e80dbd0db)",
+            "rag_retrieval/Vector store / retriever at retrieval.py:11 (738a41f21d60)"
+          ]
+        },
+        {
+          "control_id": "C10",
+          "name": "MCP / Tool Governance",
+          "category": "MCP_GOVERNANCE",
+          "confidence": "moderate",
+          "rationale": "MCP configuration was found, but no scoped-permission, allowlist, or default-deny evidence was found. MCP configuration existing is not, by itself, evidence of governance.",
+          "evidence": [],
+          "related_finding_ids": [
+            "8ce6e4f73c09",
+            "d32118d9adae"
+          ],
+          "related_dataflow_ids": [],
+          "artifact_status": "NOT_FOUND",
+          "enforcement_status": "NOT_ESTABLISHED",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": [
+            "mcp/FastMCP server at tools.py:7 (d32118d9adae)",
+            "mcp/FastMCP server at tools.py:12 (8ce6e4f73c09)"
+          ]
+        }
+      ],
+      "NOT_APPLICABLE": [
+        {
+          "control_id": "C11",
+          "name": "AI Data Access",
+          "category": "DATA_ACCESS",
+          "confidence": "moderate",
+          "rationale": "No combination of AI usage and a database/data-store client was discovered — there is no AI-adjacent data access to constrain.",
+          "evidence": [],
+          "related_finding_ids": [],
+          "related_dataflow_ids": [],
+          "artifact_status": "NOT_APPLICABLE",
+          "enforcement_status": "NOT_APPLICABLE",
+          "effectiveness_status": "UNVERIFIED",
+          "uncovered_surfaces": []
+        }
+      ],
+      "UNKNOWN": []
+    },
+    "note": "Artifact presence, structural enforcement, and runtime effectiveness are independent. NOT_FOUND does not prove absence outside this repository."
+  },
+  "risks": {
+    "total": 5,
+    "methodology": "UNSCORED_EVIDENCE_REVIEW",
+    "by_category": {
+      "HIGH_IMPACT_ACTION": 1,
+      "INPUT_SECURITY": 1,
+      "MCP_SECURITY": 1,
+      "OUTPUT_SECURITY": 1,
+      "RAG_SECURITY": 1
+    },
+    "ai_surface_detected": true,
+    "summary_note": "5 AI security risk scenario(s) generated from available repository evidence.",
+    "scenarios": [
+      {
+        "risk_id": "R-HIGH_IMPACT_ACTION-d7b698e1",
+        "title": "AI-connected high-impact action (shell/dynamic-code execution) with recognized authorization control",
+        "category": "HIGH_IMPACT_ACTION",
+        "evidence_strength": "HIGH",
+        "evidence_class": [
+          "CONTROL",
+          "DATAFLOW"
+        ],
+        "reachability_status": "STATICALLY_INFERRED",
+        "unresolved_assumptions": [
+          "Runtime reachability and exploitability were not tested.",
+          "Repository control evidence does not establish runtime enforcement or effectiveness."
+        ],
+        "rationale": "Repository evidence shows an AI-connected path to a high-impact shell/dynamic-code-execution capability (Phase 3 data-flow evidence). C12 High-Risk Action Controls status: EVIDENCE_FOUND. This assessment does not establish exploitability.",
+        "evidence": [
+          {
+            "type": "dataflow",
+            "id": "e82968895937->d04ad9032236:flows_to_output",
+            "description": "Model-to-sink data flow: flows_to_output (high confidence), Bounded structural relationship via SHARED_DEF_USE: response."
+          },
+          {
+            "type": "control",
+            "id": "C12",
+            "description": "C12 High-Risk Action Controls: EVIDENCE_FOUND — Control evidence is structurally connected to every discovered high-risk action; runtime effectiveness remains unverified."
+          }
+        ],
+        "related_finding_ids": [
+          "d04ad9032236",
+          "e82968895937"
+        ],
+        "related_dataflow_ids": [
+          "e82968895937->d04ad9032236:flows_to_output"
+        ],
+        "related_control_ids": [
+          "C12"
+        ],
+        "primary_context": "PRODUCTION"
+      },
+      {
+        "risk_id": "R-INPUT_SECURITY-2e2f73a2",
+        "title": "User-influenced prompt path without detected input-handling control",
+        "category": "INPUT_SECURITY",
+        "evidence_strength": "HIGH",
+        "evidence_class": [
+          "CONTROL",
+          "DATAFLOW"
+        ],
+        "reachability_status": "STATICALLY_INFERRED",
+        "unresolved_assumptions": [
+          "Runtime reachability and exploitability were not tested.",
+          "Repository control evidence does not establish runtime enforcement or effectiveness."
+        ],
+        "rationale": "Repository evidence shows a prompt-construction path feeding a model call with no downstream tool/external/data sink detected. C03 Input Handling status: NOT_FOUND. This assessment does not confirm prompt injection is possible.",
+        "evidence": [
+          {
+            "type": "dataflow",
+            "id": "e6d154dd3e9e->1675d519d36b:feeds_prompt",
+            "description": "Prompt-to-model data flow: feeds_prompt (high confidence), Bounded structural relationship via SHARED_DEF_USE: SYSTEM_PROMPT."
+          },
+          {
+            "type": "dataflow",
+            "id": "cf63c6d4de25->b09fdf2a9005:feeds_prompt",
+            "description": "Prompt-to-model data flow: feeds_prompt (high confidence), Bounded structural relationship via SHARED_DEF_USE: prompt_template."
+          },
+          {
+            "type": "control",
+            "id": "C03",
+            "description": "C03 Input Handling: NOT_FOUND — AI input surfaces (prompt construction / model invocation) were found, but no schema validation, sanitization, or explicit input-handling evidence was found."
+          }
+        ],
+        "related_finding_ids": [
+          "1675d519d36b",
+          "b09fdf2a9005",
+          "cf63c6d4de25",
+          "e6d154dd3e9e"
+        ],
+        "related_dataflow_ids": [
+          "cf63c6d4de25->b09fdf2a9005:feeds_prompt",
+          "e6d154dd3e9e->1675d519d36b:feeds_prompt"
+        ],
+        "related_control_ids": [
+          "C03"
+        ],
+        "primary_context": "PRODUCTION"
+      },
+      {
+        "risk_id": "R-MCP_SECURITY-2be1c653",
+        "title": "MCP tool/server surface without detected governance control",
+        "category": "MCP_SECURITY",
+        "evidence_strength": "MODERATE",
+        "evidence_class": [
+          "CONTROL",
+          "FINDING"
+        ],
+        "reachability_status": "NOT_ESTABLISHED",
+        "unresolved_assumptions": [
+          "Runtime reachability and exploitability were not tested.",
+          "No supported structural relationship establishes a path to this concern.",
+          "Repository control evidence does not establish runtime enforcement or effectiveness."
+        ],
+        "rationale": "Repository evidence shows MCP tool/server configuration. C10 MCP/Tool Governance status: NOT_FOUND. MCP configuration existing is not, by itself, evidence of exploitability — this reflects capability presence without demonstrated scoping.",
+        "evidence": [
+          {
+            "type": "finding",
+            "id": "d32118d9adae",
+            "description": "MCP surface: mcp/FastMCP server at tools.py:7 — \"mcp = FastMCP(\"synthetic-review\")\""
+          },
+          {
+            "type": "finding",
+            "id": "8ce6e4f73c09",
+            "description": "MCP surface: mcp/FastMCP server at tools.py:12 — \"@mcp.tool()\""
+          },
+          {
+            "type": "control",
+            "id": "C10",
+            "description": "C10 MCP / Tool Governance: NOT_FOUND — MCP configuration was found, but no scoped-permission, allowlist, or default-deny evidence was found. MCP configuration existing is not, by itself, evidence of governance."
+          }
+        ],
+        "related_finding_ids": [
+          "8ce6e4f73c09",
+          "d32118d9adae"
+        ],
+        "related_dataflow_ids": [],
+        "related_control_ids": [
+          "C10"
+        ],
+        "primary_context": "PRODUCTION"
+      },
+      {
+        "risk_id": "R-OUTPUT_SECURITY-60ba56ad",
+        "title": "Model output without detected output-handling control",
+        "category": "OUTPUT_SECURITY",
+        "evidence_strength": "MODERATE",
+        "evidence_class": [
+          "CONTROL",
+          "FINDING"
+        ],
+        "reachability_status": "NOT_ESTABLISHED",
+        "unresolved_assumptions": [
+          "Runtime reachability and exploitability were not tested.",
+          "No supported structural relationship establishes a path to this concern.",
+          "Repository control evidence does not establish runtime enforcement or effectiveness."
+        ],
+        "rationale": "Repository evidence shows model invocation with no downstream tool/external/data sink and no detected output-validation evidence. C04 Output Handling status: NOT_FOUND. This assessment does not confirm the output is used unsafely.",
+        "evidence": [
+          {
+            "type": "finding",
+            "id": "1675d519d36b",
+            "description": "Model invocation without downstream sink: ai_usage/Chat/completions call at app.py:11 — \"response = client.chat.completions.create(\""
+          },
+          {
+            "type": "finding",
+            "id": "b09fdf2a9005",
+            "description": "Model invocation without downstream sink: ai_usage/Chat/completions call at retrieval.py:13 — \"response = client.messages.create(\""
+          },
+          {
+            "type": "finding",
+            "id": "2bdfba6fe5c4",
+            "description": "Model invocation without downstream sink: ai_usage/LangChain at retrieval.py:4 — \"from langchain_chroma import Chroma\""
+          },
+          {
+            "type": "finding",
+            "id": "657e25ab4d59",
+            "description": "Model invocation without downstream sink: ai_usage/LangChain at tools.py:3 — \"from langchain_core.tools import tool\""
+          },
+          {
+            "type": "control",
+            "id": "C04",
+            "description": "C04 Output Handling: NOT_FOUND — AI usage was found, but no output validation/sanitization evidence was found. Model output was also observed (via Phase 3 data-flow) to reach a tool, shell, or external call, with no validation evidence in between."
+          }
+        ],
+        "related_finding_ids": [
+          "1675d519d36b",
+          "2bdfba6fe5c4",
+          "657e25ab4d59",
+          "b09fdf2a9005"
+        ],
+        "related_dataflow_ids": [],
+        "related_control_ids": [
+          "C04"
+        ],
+        "primary_context": "PRODUCTION"
+      },
+      {
+        "risk_id": "R-RAG_SECURITY-963fe7b3",
+        "title": "Retrieved content feeds model context without detected retrieval-security control",
+        "category": "RAG_SECURITY",
+        "evidence_strength": "HIGH",
+        "evidence_class": [
+          "CONTROL",
+          "DATAFLOW"
+        ],
+        "reachability_status": "STATICALLY_INFERRED",
+        "unresolved_assumptions": [
+          "Runtime reachability and exploitability were not tested.",
+          "Repository control evidence does not establish runtime enforcement or effectiveness."
+        ],
+        "rationale": "Repository evidence shows retrieved content flowing into model context. C09 RAG/Retrieval Security status: NOT_FOUND. This assessment does not confirm retrieval poisoning is possible, only that the retrieval-to-model relationship exists without demonstrated filtering.",
+        "evidence": [
+          {
+            "type": "dataflow",
+            "id": "082e80dbd0db->b09fdf2a9005:retrieved_context",
+            "description": "Retrieval-to-model data flow: retrieved_context (high confidence), Bounded structural relationship via SHARED_DEF_USE: store."
+          },
+          {
+            "type": "dataflow",
+            "id": "738a41f21d60->b09fdf2a9005:retrieved_context",
+            "description": "Retrieval-to-model data flow: retrieved_context (high confidence), Bounded structural relationship via SHARED_DEF_USE: documents."
+          },
+          {
+            "type": "control",
+            "id": "C09",
+            "description": "C09 RAG / Retrieval Security: NOT_FOUND — Retrieval/RAG usage was found, but no source allowlisting, content filtering, or provenance-check evidence was found."
+          }
+        ],
+        "related_finding_ids": [
+          "082e80dbd0db",
+          "738a41f21d60",
+          "b09fdf2a9005"
+        ],
+        "related_dataflow_ids": [
+          "082e80dbd0db->b09fdf2a9005:retrieved_context",
+          "738a41f21d60->b09fdf2a9005:retrieved_context"
+        ],
+        "related_control_ids": [
+          "C09"
+        ],
+        "primary_context": "PRODUCTION"
+      }
+    ]
+  },
+  "readiness": {
+    "assessment_status": "UNSCORED",
+    "assessment_completeness": "COMPLETE",
+    "checks": [
+      {
+        "check_id": "PROCESS-1",
+        "name": "AI inventory and threat-model scope",
+        "artifact_status": "EVIDENCE_OBSERVED",
+        "enforcement_status": "UNKNOWN",
+        "evidence": [
+          {
+            "type": "DISCOVERY_EVIDENCE",
+            "id": "discovery",
+            "description": "23 supported AI evidence finding(s) identified."
+          },
+          {
+            "type": "DISCOVERY_EVIDENCE",
+            "id": "attack_surface",
+            "description": "Attack surface mapped across 5 non-empty bucket(s)."
+          },
+          {
+            "type": "DATAFLOW_EVIDENCE",
+            "id": "dataflow",
+            "description": "11 data-flow relationship(s) observed."
+          }
+        ],
+        "missing_evidence": [
+          "documented AI inventory (C01 not DETECTED)",
+          "documented threat model (C02 not DETECTED)",
+          "formal risk register documentation"
+        ],
+        "unresolved_assumptions": [
+          "Offline repository inspection cannot verify execution, enforcement, or effectiveness."
+        ]
+      },
+      {
+        "check_id": "PROCESS-2",
+        "name": "Repeatable AI security testing",
+        "artifact_status": "NOT_OBSERVED",
+        "enforcement_status": "UNKNOWN",
+        "evidence": [],
+        "missing_evidence": [
+          "no repeatable AI/security test artifact detected (e.g. tests/security/, tests/redteam/, evals/)",
+          "no documented AI evaluation process found in repository documentation"
+        ],
+        "unresolved_assumptions": [
+          "Offline repository inspection cannot verify execution, enforcement, or effectiveness."
+        ]
+      },
+      {
+        "check_id": "PROCESS-3",
+        "name": "CI-integrated security evaluation",
+        "artifact_status": "NOT_OBSERVED",
+        "enforcement_status": "UNKNOWN",
+        "evidence": [],
+        "missing_evidence": [
+          "repeatable AI security testing evidence prerequisite not established",
+          "no CI configuration found integrating security/eval testing into the release process"
+        ],
+        "unresolved_assumptions": [
+          "Offline repository inspection cannot verify execution, enforcement, or effectiveness."
+        ]
+      },
+      {
+        "check_id": "PROCESS-4",
+        "name": "Scheduled evaluation and retained evidence",
+        "artifact_status": "NOT_OBSERVED",
+        "enforcement_status": "UNKNOWN",
+        "evidence": [],
+        "missing_evidence": [
+          "CI-integrated security evaluation evidence prerequisite not established",
+          "no scheduled/recurring security evaluation trigger found in CI configuration"
+        ],
+        "unresolved_assumptions": [
+          "Offline repository inspection cannot verify execution, enforcement, or effectiveness."
+        ]
+      }
+    ],
+    "limitations": [
+      "Process evidence is detected from nontrivial test assertions, CI commands that reference existing test paths, and substantive documentation — not by verifying that the process actually runs or is enforced.",
+      "This assessment reflects repository evidence only; a real security program that lives outside this repository (a separate ops repo, an external vendor, a private wiki) is invisible to it.",
+      "Running Vibe Explainer does not itself increase the assessed readiness of the target repository — generated attack-surface/control/risk output is never counted as process evidence."
+    ],
+    "self_scan": false
+  },
+  "recommendations": [
+    {
+      "title": "AI-connected high-impact action (shell/dynamic-code execution) with recognized authorization control",
+      "why_it_matters": "Repository evidence shows an AI-connected path to a high-impact shell/dynamic-code-execution capability (Phase 3 data-flow evidence). C12 High-Risk Action Controls status: EVIDENCE_FOUND. This assessment does not establish exploitability.",
+      "evidence_summary": "2 evidence item(s) — see risk R-HIGH_IMPACT_ACTION-d7b698e1 for detail.",
+      "suggested_action": "Require explicit authorization before invoking the high-impact tool and add a regression test covering unauthorized invocation.",
+      "reachability_status": "STATICALLY_INFERRED",
+      "requires_analyst_review": true,
+      "related_risk_ids": [
+        "R-HIGH_IMPACT_ACTION-d7b698e1"
+      ],
+      "related_control_ids": [
+        "C12"
+      ]
+    },
+    {
+      "title": "User-influenced prompt path without detected input-handling control",
+      "why_it_matters": "Repository evidence shows a prompt-construction path feeding a model call with no downstream tool/external/data sink detected. C03 Input Handling status: NOT_FOUND. This assessment does not confirm prompt injection is possible.",
+      "evidence_summary": "3 evidence item(s) — see risk R-INPUT_SECURITY-2e2f73a2 for detail.",
+      "suggested_action": "Add schema validation or sanitization on the user-influenced prompt path.",
+      "reachability_status": "STATICALLY_INFERRED",
+      "requires_analyst_review": true,
+      "related_risk_ids": [
+        "R-INPUT_SECURITY-2e2f73a2"
+      ],
+      "related_control_ids": [
+        "C03"
+      ]
+    },
+    {
+      "title": "MCP tool/server surface without detected governance control",
+      "why_it_matters": "Repository evidence shows MCP tool/server configuration. C10 MCP/Tool Governance status: NOT_FOUND. MCP configuration existing is not, by itself, evidence of exploitability — this reflects capability presence without demonstrated scoping.",
+      "evidence_summary": "3 evidence item(s) — see risk R-MCP_SECURITY-2be1c653 for detail.",
+      "suggested_action": "Scope MCP tool permissions explicitly and default-deny unlisted tools.",
+      "reachability_status": "NOT_ESTABLISHED",
+      "requires_analyst_review": true,
+      "related_risk_ids": [
+        "R-MCP_SECURITY-2be1c653"
+      ],
+      "related_control_ids": [
+        "C10"
+      ]
+    },
+    {
+      "title": "Model output without detected output-handling control",
+      "why_it_matters": "Repository evidence shows model invocation with no downstream tool/external/data sink and no detected output-validation evidence. C04 Output Handling status: NOT_FOUND. This assessment does not confirm the output is used unsafely.",
+      "evidence_summary": "5 evidence item(s) — see risk R-OUTPUT_SECURITY-60ba56ad for detail.",
+      "suggested_action": "If model output is consumed by a structured, privileged, or externally visible downstream operation, evaluate output validation appropriate to that boundary.",
+      "reachability_status": "NOT_ESTABLISHED",
+      "requires_analyst_review": true,
+      "related_risk_ids": [
+        "R-OUTPUT_SECURITY-60ba56ad"
+      ],
+      "related_control_ids": [
+        "C04"
+      ]
+    },
+    {
+      "title": "Retrieved content feeds model context without detected retrieval-security control",
+      "why_it_matters": "Repository evidence shows retrieved content flowing into model context. C09 RAG/Retrieval Security status: NOT_FOUND. This assessment does not confirm retrieval poisoning is possible, only that the retrieval-to-model relationship exists without demonstrated filtering.",
+      "evidence_summary": "3 evidence item(s) — see risk R-RAG_SECURITY-963fe7b3 for detail.",
+      "suggested_action": "Add source allowlisting or content filtering before retrieved content enters the model prompt.",
+      "reachability_status": "STATICALLY_INFERRED",
+      "requires_analyst_review": true,
+      "related_risk_ids": [
+        "R-RAG_SECURITY-963fe7b3"
+      ],
+      "related_control_ids": [
+        "C09"
+      ]
+    },
+    {
+      "title": "Address the next process-evidence gap",
+      "why_it_matters": "no repeatable AI/security test artifact detected (e.g. tests/security/, tests/redteam/, evals/)",
+      "evidence_summary": "See the unscored process-evidence checklist for detail.",
+      "suggested_action": "Add reviewable evidence for the listed process check.",
+      "reachability_status": "NOT_APPLICABLE",
+      "requires_analyst_review": true,
+      "related_risk_ids": [],
+      "related_control_ids": []
+    }
+  ],
+  "limitations": [
+    "Static analysis only — authoritative source discovery is syntax-gated for Python and lexical for structured configuration; other code languages are lead-only.",
+    "Relationship observations require bounded Python def-use or direct-import evidence; they do not establish runtime data flow.",
+    "No runtime verification of any kind — nothing in this pipeline executes the target application or confirms a path is actually reachable.",
+    "Control discovery begins with named patterns and uses conservative Python AST relationships; differently named or dynamically wired controls may remain invisible.",
+    "This report reflects repository evidence only — practices, controls, or processes that live outside the scanned repository are not visible here.",
+    "Redaction is defense-in-depth, not a guarantee. Treat generated reports as sensitive, restrict access, define a retention period, and securely delete them when no longer needed.",
+    "Process evidence is detected from nontrivial test assertions, CI commands that reference existing test paths, and substantive documentation — not by verifying that the process actually runs or is enforced.",
+    "This assessment reflects repository evidence only; a real security program that lives outside this repository (a separate ops repo, an external vendor, a private wiki) is invisible to it.",
+    "Running Vibe Explainer does not itself increase the assessed readiness of the target repository — generated attack-surface/control/risk output is never counted as process evidence."
+  ]
+}

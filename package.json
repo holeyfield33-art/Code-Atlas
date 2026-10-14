@@ -1,0 +1,34 @@
+{
+  "name": "code-atlas",
+  "version": "0.1.0",
+  "description": "Turn a repository into a source-grounded 3D code map and a grounded Break & Fix course.",
+  "type": "module",
+  "bin": {
+    "code-atlas": "./dist/cli.js",
+    "code-atlas-mcp": "./dist/mcp/server.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx tests/schema.test.ts && tsx tests/generator.test.ts && tsx tests/findings.test.ts && tsx tests/adapter.test.ts && tsx tests/mcp.test.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@babel/parser": "^7.26.0",
+    "@babel/traverse": "^7.25.0",
+    "commander": "^12.1.0",
+    "zod": "^3.23.8",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/babel__traverse": "^7.20.6",
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
