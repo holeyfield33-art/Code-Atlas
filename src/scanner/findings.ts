@@ -38,9 +38,6 @@ function functionSources(code: string): Map<string, string> {
 }
 
 // freeOnly: match a FREE/imported call `name(` but not a method call `x.name(`.
-// Sinks use freeOnly so a regex `re.exec(...)` or `arr.query(...)` can't masquerade
-// as child_process.exec / a DB query. Guards do NOT use it — validators are commonly
-// methods (`schema.parse(...)`, `z.safeParse(...)`), and we still want those to count.
 const callsName = (src: string, name: string, freeOnly = false) =>
   new RegExp((freeOnly ? "(?<!\\.)" : "") + "\\b" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\(").test(src);
 
@@ -49,10 +46,15 @@ const callsName = (src: string, name: string, freeOnly = false) =>
  *  pattern match is itself a fabrication, which the grounding invariant forbids. */
 const castsBlast = (g: string) => g === "OBSERVED" || g === "TESTED";
 
-function matches(when: Rule["when"], fnName: string, src: string): boolean {
+function matches(when: Rule["when"], fnName: string, src: string, kind: Rule["kind"]): boolean {
+  // A WEAKNESS rule's positive calls are SINKS: match free/imported calls only, so a
+  // method like `re.exec(...)` / `arr.query(...)` can't masquerade as a sink. A CONTROL
+  // rule's positive calls are VALIDATORS, which are usually methods (`schema.parse(...)`,
+  // `z.safeParse(...)`), so those must still match method calls.
+  const freeOnly = kind === "weakness";
   if (when.nameMatches && !new RegExp(when.nameMatches, "i").test(fnName)) return false;
-  if (when.callsAny && !when.callsAny.some((n) => callsName(src, n, true))) return false;   // sinks: free calls only
-  if (when.callsNoneOf && when.callsNoneOf.some((n) => callsName(src, n))) return false;      // guards: any call form
+  if (when.callsAny && !when.callsAny.some((n) => callsName(src, n, freeOnly))) return false;
+  if (when.callsNoneOf && when.callsNoneOf.some((n) => callsName(src, n))) return false;        // guards: any call form
   // a rule with only callsNoneOf would match everything — require at least one positive signal
   if (!when.nameMatches && !when.callsAny) return false;
   return true;
@@ -77,7 +79,7 @@ export function scan(graph: AtlasGraph, sources: SourceFile[], rules: Rule[] = D
     const src = fnSrc(node.evidence.path).get(node.label);
     if (!src) continue;
     for (const rule of rules) {
-      if (!matches(rule.when, node.label, src)) continue;
+      if (!matches(rule.when, node.label, src, rule.kind)) continue;
       const blast = (rule.kind === "weakness" && rule.blast === "callers" && castsBlast(rule.grade)) ? callersOf(node.id) : [];
       const f: Finding = {
         id: rule.id + ":" + node.id,

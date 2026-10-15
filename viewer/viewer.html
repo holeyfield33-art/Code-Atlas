@@ -647,7 +647,10 @@ function securitySection(n){
   const f = state.findingByNode.get(n.id);
   const g = gradeOf(n.id);
   if(f){
-    const affected = (f.kind==="weakness" && f.blastRadius && f.blastRadius.length)
+    // Only a VERIFIED weakness shows a "may affect" list — never trust a raw radius on
+    // a static/inferred lead (a loaded third-party bundle may carry one), or the panel
+    // would contradict its own "casts no blast radius" note.
+    const affected = (f.kind==="weakness" && VERIFIED(f.grade) && f.blastRadius && f.blastRadius.length)
       ? `<div class="conn-row"><span class="lab">may affect</span><span class="vals">${f.blastRadius.map(id=>`<b data-goto="${id}">${esc(labelFor(id))}</b>`).join(", ")}</span></div>` : "";
     return `<div class="sec">
       <div class="sec-head"><span class="grade-pill" style="background:var(${GRADECSS[g]})">${GRADE_LABEL[g]}</span><span class="grade-ev">${esc(f.grade)}</span></div>

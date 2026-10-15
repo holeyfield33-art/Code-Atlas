@@ -184,7 +184,12 @@ const ok = (msg: string) => { n++; console.log("  ok " + msg); };
   const flagged = new Set(findings.filter((f) => f.id.startsWith("r-unguarded-sink")).map(labelOf));
   assert.ok(!flagged.has("a"), "#3: RegExp .exec() is not flagged as a high-impact sink");
   assert.ok(flagged.has("b"), "#3: a free eval() call is still flagged");
-  ok("#3 sink precision — method calls (.exec/.query) no longer false-positive");
+  // Control rules must STILL match method-form validators (freeOnly is weakness-only).
+  const ctl = [{ path: "c.ts", code: "export function h(x){ return schema.parse(x); }\n" }];
+  const gc = buildGraph("c@t", ctl);
+  const cf = scan(gc, ctl, DEFAULT_RULES).findings;
+  assert.ok(cf.some((f) => f.id.startsWith("c-input-validation")), "#3: method-form validator (schema.parse) still detected as a control");
+  ok("#3 sink precision — method sinks dropped, method validators still counted");
 }
 
 // ---- #1: a STATIC lead casts no blast radius -----------------------------
