@@ -36,7 +36,7 @@ for (const { lang, dir, exts } of cases) {
   const files = loadFixture(dir, exts);
   assert.ok(files.size >= 2, `${lang}: fixture has files`);
 
-  const graph = await buildMultiLangGraph(lang, files, `${lang}@test`, ".");
+  const { graph } = await buildMultiLangGraph(lang, files, `${lang}@test`, ".");
 
   // grounding: every edge endpoint resolves to a real node (no fabricated edges)
   const ids = new Set(graph.nodes.map((n) => n.id));
