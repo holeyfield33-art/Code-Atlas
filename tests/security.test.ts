@@ -173,4 +173,41 @@ const ok = (msg: string) => { n++; console.log("  ok " + msg); };
   ok("F8 self-contained — renderer bundled in, no remote script execution");
 }
 
-console.log(`security.test: ${n} finding regressions pass (F1–F7 + Codex P1/P2a + F8 bundle) — every confirmed breakout re-attacked and blocked`);
+// ---- #3: sink matching ignores method calls (RegExp.exec false positive) -----
+{
+  const src = [{ path: "x.ts", code:
+    "export function a(s){ return /foo(bar)?/.exec(s); }\n" +   // RegExp.exec -> must NOT flag
+    "export function b(cmd){ return eval(cmd); }\n" }];          // free eval -> must flag
+  const g = buildGraph("x@t", src);
+  const { findings } = scan(g, src, DEFAULT_RULES);
+  const labelOf = (f: any) => g.nodes.find((nn) => nn.id === f.nodeRefs[0])?.label;
+  const flagged = new Set(findings.filter((f) => f.id.startsWith("r-unguarded-sink")).map(labelOf));
+  assert.ok(!flagged.has("a"), "#3: RegExp .exec() is not flagged as a high-impact sink");
+  assert.ok(flagged.has("b"), "#3: a free eval() call is still flagged");
+  // Control rules must STILL match method-form validators (freeOnly is weakness-only).
+  const ctl = [{ path: "c.ts", code: "export function h(x){ return schema.parse(x); }\n" }];
+  const gc = buildGraph("c@t", ctl);
+  const cf = scan(gc, ctl, DEFAULT_RULES).findings;
+  assert.ok(cf.some((f) => f.id.startsWith("c-input-validation")), "#3: method-form validator (schema.parse) still detected as a control");
+  ok("#3 sink precision — method sinks dropped, method validators still counted");
+}
+
+// ---- #1: a STATIC lead casts no blast radius -----------------------------
+{
+  const src = [{ path: "y.ts", code:
+    "export function sink(cmd){ return eval(cmd); }\n" +
+    "export function caller(x){ return sink(x); }\n" }];
+  const g = buildGraph("y@t", src);
+  const { findings } = scan(g, src, DEFAULT_RULES);
+  const w = findings.find((f) => f.id.startsWith("r-unguarded-sink"));
+  assert.ok(w, "#1: the weakness lead exists");
+  assert.strictEqual(w!.grade, "STATIC", "#1: a native lead is STATIC");
+  assert.strictEqual(w!.blastRadius.length, 0, "#1: a STATIC lead propagates no blast radius");
+  // but a verified (OBSERVED) external finding still casts one
+  const obs = ingestReport([{ id: "O", kind: "weakness", title: "t", explanation: "e", grade: "OBSERVED", file: "y.ts", symbol: "sink" }], g).findings[0];
+  // (external OBSERVED is capped to INFERRED by design, so it too casts none — the gate is grade-based)
+  assert.strictEqual(obs.blastRadius.length, 0, "#1: an external claim (capped to INFERRED) casts no blast either");
+  ok("#1 blast gate — only verified findings propagate; static/inferred leads do not");
+}
+
+console.log(`security.test: ${n} finding regressions pass (F1–F7 + P1/P2a + F8 + #1/#3) — every confirmed breakout re-attacked and blocked`);

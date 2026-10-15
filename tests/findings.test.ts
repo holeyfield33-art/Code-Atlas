@@ -28,7 +28,8 @@ assert.ok(byRule("c-input-validation").length === 1, "one input-validation contr
 
 const sink = byRule("r-unguarded-sink")[0];
 assert.strictEqual(sink.kind, "weakness");
-assert.ok(sink.blastRadius.length >= 1, "blast radius includes the caller (handler)");
+// A STATIC lead casts NO blast radius — only a verified (OBSERVED/TESTED) finding does.
+assert.strictEqual(sink.blastRadius.length, 0, "a static lead propagates no blast radius");
 
 // honesty: NO static finding may claim OBSERVED or TESTED
 for (const f of findings) assert.ok(f.grade === "STATIC" || f.grade === "INFERRED", f.id + " grade must be static");
@@ -51,4 +52,4 @@ assert.strictEqual(mapped[0].grade, "INFERRED", "adapter keeps the report's grad
 assert.strictEqual(unmapped.length, 0, "nothing unmapped");
 
 console.log(`findings.test: ${findings.length} findings (${byRule("r-").length} weakness-rule, ` +
-  `${byRule("c-").length} control), grades honest, blast from real callers, adapter maps + bundle valid`);
+  `${byRule("c-").length} control), grades honest, static leads cast no blast, adapter maps + bundle valid`);

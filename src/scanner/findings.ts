@@ -37,12 +37,24 @@ function functionSources(code: string): Map<string, string> {
   return out;
 }
 
-const callsName = (src: string, name: string) => new RegExp("\\b" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\(").test(src);
+// freeOnly: match a FREE/imported call `name(` but not a method call `x.name(`.
+const callsName = (src: string, name: string, freeOnly = false) =>
+  new RegExp((freeOnly ? "(?<!\\.)" : "") + "\\b" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\(").test(src);
 
-function matches(when: Rule["when"], fnName: string, src: string): boolean {
+/** A blast radius is drawn only for a VERIFIED finding. A static/inferred lead
+ *  propagates nothing: painting neighbours "possibly affected" from an unverified
+ *  pattern match is itself a fabrication, which the grounding invariant forbids. */
+const castsBlast = (g: string) => g === "OBSERVED" || g === "TESTED";
+
+function matches(when: Rule["when"], fnName: string, src: string, kind: Rule["kind"]): boolean {
+  // A WEAKNESS rule's positive calls are SINKS: match free/imported calls only, so a
+  // method like `re.exec(...)` / `arr.query(...)` can't masquerade as a sink. A CONTROL
+  // rule's positive calls are VALIDATORS, which are usually methods (`schema.parse(...)`,
+  // `z.safeParse(...)`), so those must still match method calls.
+  const freeOnly = kind === "weakness";
   if (when.nameMatches && !new RegExp(when.nameMatches, "i").test(fnName)) return false;
-  if (when.callsAny && !when.callsAny.some((n) => callsName(src, n))) return false;
-  if (when.callsNoneOf && when.callsNoneOf.some((n) => callsName(src, n))) return false;
+  if (when.callsAny && !when.callsAny.some((n) => callsName(src, n, freeOnly))) return false;
+  if (when.callsNoneOf && when.callsNoneOf.some((n) => callsName(src, n))) return false;        // guards: any call form
   // a rule with only callsNoneOf would match everything — require at least one positive signal
   if (!when.nameMatches && !when.callsAny) return false;
   return true;
@@ -67,8 +79,8 @@ export function scan(graph: AtlasGraph, sources: SourceFile[], rules: Rule[] = D
     const src = fnSrc(node.evidence.path).get(node.label);
     if (!src) continue;
     for (const rule of rules) {
-      if (!matches(rule.when, node.label, src)) continue;
-      const blast = rule.kind === "weakness" && rule.blast === "callers" ? callersOf(node.id) : [];
+      if (!matches(rule.when, node.label, src, rule.kind)) continue;
+      const blast = (rule.kind === "weakness" && rule.blast === "callers" && castsBlast(rule.grade)) ? callersOf(node.id) : [];
       const f: Finding = {
         id: rule.id + ":" + node.id,
         nodeRefs: [node.id],
@@ -153,7 +165,7 @@ export function ingestVibeExplainer(ve: any, graph: AtlasGraph):
         id: s.risk_id + ":" + node.id, nodeRefs: [node.id], kind: "weakness",
         title: s.title, explanation, grade,
         evidence: [{ source: "vibe-explainer", detail: s.risk_id + " (" + (s.reachability_status || "static") + ")" }],
-        blastRadius: callersOf(node.id),
+        blastRadius: castsBlast(grade) ? callersOf(node.id) : [],
         ...(asiId && asiRefFor(asiId, today()) ? { asiRef: asiRefFor(asiId, today())! } : {}),
       });
     }
@@ -217,7 +229,7 @@ export function ingestReport(report: ExternalFinding[], graph: AtlasGraph):
       id: r.id, nodeRefs: [node.id], kind: r.kind, title: r.title, explanation: r.explanation,
       grade,                                            // external claim, capped — never OBSERVED/TESTED
       evidence: [{ source: "external-report", detail: "mapped from " + r.file + (r.symbol ? "#" + r.symbol : "") + (grade !== r.grade ? ` (claimed ${r.grade}, capped to ${grade})` : "") }],
-      blastRadius: r.kind === "weakness" ? callersOf(node.id) : [],
+      blastRadius: (r.kind === "weakness" && castsBlast(grade)) ? callersOf(node.id) : [],
       ...(isHttpUrl(r.asiRef?.url) ? { asiRef: r.asiRef } : {}),
     });
   }
