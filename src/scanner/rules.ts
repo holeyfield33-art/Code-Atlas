@@ -71,6 +71,129 @@ export const DEFAULT_RULES: Rule[] = [
   },
 ];
 
+/**
+ * Language-native rule packs for the tree-sitter backends (Python, Ruby).
+ *
+ * The engine (findings.ts) is language-agnostic: it matches a weakness rule's
+ * `callsAny` as a FREE/imported call (`name(`, not `recv.name(`). So each sink
+ * here is written FULLY QUALIFIED (`os.system`, `subprocess.run`, `Marshal.load`)
+ * — the module/namespace token is literal, which both matches the real call form
+ * in these languages AND stays precise (it can't be spoofed by an arbitrary
+ * receiver). Bare builtins (`eval`, `exec`) match directly.
+ *
+ * Every rule is STATIC: a structural lead, not proof the input is attacker-
+ * controlled or the path reachable. Blast radius stays empty (the engine only
+ * casts it for OBSERVED/TESTED), so an unverified lead paints no neighbours.
+ *
+ * Honest limit: receiver-method sinks whose receiver is a runtime value
+ * (`cursor.execute(sql)`) are NOT matched — that needs receiver/type awareness
+ * the static name matcher does not have. Tracked as a follow-up.
+ */
+export const PYTHON_RULES: Rule[] = [
+  {
+    id: "py-code-exec", kind: "weakness", grade: "STATIC",
+    title: "Dynamic code execution",
+    explanation:
+      "This function reaches a dynamic code-execution primitive (eval / exec / compile). If any part of the argument is attacker-influenced this is arbitrary code execution. Static lead — reachability and input source are unverified.",
+    when: { callsAny: ["eval", "exec", "compile", "__import__"], callsNoneOf: ["literal_eval", "ast.literal_eval"] },
+    blast: "callers",
+    asi: asi("AAC-11"),
+  },
+  {
+    id: "py-os-command", kind: "weakness", grade: "STATIC",
+    title: "OS command execution with no visible argument quoting",
+    explanation:
+      "This function shells out (os.system / subprocess / os.popen) and no shlex quoting/splitting is visible inside it. Static lead for command injection — not proof the command string is attacker-controlled.",
+    when: {
+      callsAny: ["os.system", "os.popen", "subprocess.run", "subprocess.call", "subprocess.Popen", "subprocess.check_output", "subprocess.check_call"],
+      callsNoneOf: ["shlex.quote", "shlex.split"],
+    },
+    blast: "callers",
+    asi: asi("AAC-11"),
+  },
+  {
+    id: "py-unsafe-deser", kind: "weakness", grade: "STATIC",
+    title: "Unsafe deserialization",
+    explanation:
+      "This function deserializes with a primitive that can execute code or construct arbitrary objects (pickle / marshal / yaml.load without SafeLoader). Static lead — not proof the payload is untrusted.",
+    when: { callsAny: ["pickle.loads", "pickle.load", "marshal.loads", "marshal.load", "yaml.load"], callsNoneOf: ["safe_load"] },
+    blast: "callers",
+    asi: asi("AAC-11"),
+  },
+  {
+    id: "py-raw-secret", kind: "weakness", grade: "STATIC",
+    title: "Secret-like handling without visible redaction",
+    explanation:
+      "This function's name suggests it handles secret material (token / password / credential / api_key) and no redaction call is visible inside it. Static lead only.",
+    when: { nameMatches: "(token|secret|password|credential|api_?key)", callsNoneOf: ["redact", "mask", "sanitize"] },
+    blast: "none",
+    asi: asi("AAC-09"),
+  },
+  {
+    id: "py-input-validation", kind: "control", grade: "STATIC",
+    title: "Input validation present",
+    explanation:
+      "This function calls a validation / quoting primitive — a control artifact. Present does not mean effective; a reviewer must confirm it guards the relevant input.",
+    when: { callsAny: ["validate", "is_valid", "clean", "shlex.quote", "escape"] },
+    blast: "none",
+    asi: asi("AAC-01"),
+  },
+];
+
+export const RUBY_RULES: Rule[] = [
+  {
+    id: "rb-code-exec", kind: "weakness", grade: "STATIC",
+    title: "Dynamic code execution",
+    explanation:
+      "This method reaches a dynamic code-execution primitive (eval / instance_eval / class_eval / send). If any part of the argument is attacker-influenced this is arbitrary code or method execution. Static lead only.",
+    when: { callsAny: ["eval", "instance_eval", "class_eval", "module_eval", "send", "public_send"] },
+    blast: "callers",
+    asi: asi("AAC-11"),
+  },
+  {
+    id: "rb-os-command", kind: "weakness", grade: "STATIC",
+    title: "OS command execution",
+    explanation:
+      "This method shells out (system / exec / Open3 / %x). If the command string is attacker-influenced this is command injection. Static lead — not proof the input is untrusted.",
+    when: { callsAny: ["system", "exec", "Open3.capture2", "Open3.capture3", "Open3.popen3", "Kernel.system"], callsNoneOf: ["Shellwords.escape", "shellescape"] },
+    blast: "callers",
+    asi: asi("AAC-11"),
+  },
+  {
+    id: "rb-unsafe-deser", kind: "weakness", grade: "STATIC",
+    title: "Unsafe deserialization",
+    explanation:
+      "This method deserializes with a primitive that can construct arbitrary objects (Marshal.load / YAML.load without safe_load). Static lead only.",
+    when: { callsAny: ["Marshal.load", "Marshal.restore", "YAML.load"], callsNoneOf: ["safe_load"] },
+    blast: "callers",
+    asi: asi("AAC-11"),
+  },
+  {
+    id: "rb-raw-secret", kind: "weakness", grade: "STATIC",
+    title: "Secret-like handling without visible redaction",
+    explanation:
+      "This method's name suggests it handles secret material (token / password / credential / api_key) and no redaction call is visible inside it. Static lead only.",
+    when: { nameMatches: "(token|secret|password|credential|api_?key)", callsNoneOf: ["redact", "mask", "sanitize"] },
+    blast: "none",
+    asi: asi("AAC-09"),
+  },
+  {
+    id: "rb-input-validation", kind: "control", grade: "STATIC",
+    title: "Input validation present",
+    explanation:
+      "This method calls a validation / escaping primitive (validate / permit / sanitize / shellescape) — a control artifact. Present does not mean effective; a reviewer must confirm it guards the relevant input.",
+    when: { callsAny: ["validate", "validates", "permit", "sanitize", "shellescape"] },
+    blast: "none",
+    asi: asi("AAC-01"),
+  },
+];
+
+/** Native rule pack per tree-sitter language. */
+export const LANGUAGE_RULES: Record<string, Rule[]> = {
+  python: PYTHON_RULES,
+  ruby: RUBY_RULES,
+};
+
 // The classic nested-quantifier ReDoS shape, e.g. (a+)+ — a custom rule's
 // nameMatches is compiled to a RegExp, so refuse this at load time.
 const NESTED_QUANTIFIER = /\([^()]*[+*][^()]*\)[+*]/;

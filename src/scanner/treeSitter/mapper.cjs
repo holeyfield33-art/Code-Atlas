@@ -115,6 +115,10 @@ function extractFromTree(tree, source, filePath, lang, query) {
         name,
         file: filePath,
         range,
+        // Full definition extent (the whole def/class/method body), distinct from
+        // `range` which is just the name. Used to slice the real source of a
+        // function for the native rule engine (non-JS backends can't use Babel).
+        bodyRange: { start: defOrRef.startIndex, end: defOrRef.endIndex },
         meta: { language: lang, originalKind: kind },
       };
       localNodes.push(node);

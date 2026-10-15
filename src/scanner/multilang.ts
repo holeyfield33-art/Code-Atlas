@@ -23,7 +23,7 @@ import { createHash } from "node:crypto";
 import type { AtlasGraph, AtlasNode, AtlasEdge } from "../schema.js";
 
 const require = createRequire(import.meta.url);
-interface GenericNode { id: string; kind: string; name?: string; file?: string; range?: { start: number; end: number }; meta?: unknown; }
+interface GenericNode { id: string; kind: string; name?: string; file?: string; range?: { start: number; end: number }; bodyRange?: { start: number; end: number }; meta?: unknown; }
 interface GenericEdge { id: string; kind: string; source: string; target: string; meta?: unknown; }
 interface GenericDiag { severity?: string; message: string; file?: string; range?: unknown; }
 interface GenericGraph { nodes: GenericNode[]; edges: GenericEdge[]; diagnostics: GenericDiag[]; }
@@ -54,8 +54,18 @@ export function languageOf(path: string): MultiLang | null {
   return null;
 }
 
+/** A built graph plus the real source slice of each function-kind node, keyed by
+ *  node id. The slices let the native rule engine (findings.ts) scan non-JS
+ *  functions without a JS parser — the slice is the verbatim definition body at
+ *  the tree-sitter range, so matches stay source-grounded. */
+export interface MultiLangBuild {
+  graph: AtlasGraph;
+  functionSources: Map<string, string>;
+}
+
 /**
- * Build a schema-conformant AtlasGraph for one language.
+ * Build a schema-conformant AtlasGraph for one language, plus per-function source
+ * slices for the native rule engine.
  * @param fileContents repo-relative path -> source (one language's files)
  */
 export async function buildMultiLangGraph(
@@ -63,14 +73,18 @@ export async function buildMultiLangGraph(
   fileContents: Map<string, string>,
   revision: string,
   projectRoot = ".",
-): Promise<AtlasGraph> {
+): Promise<MultiLangBuild> {
   const g = await mapper.buildGraph(lang, fileContents, projectRoot);
   const srcOf = (p?: string) => (p ? fileContents.get(p) ?? "" : "");
 
+  const functionSources = new Map<string, string>();
   const nodes: AtlasNode[] = g.nodes.map((n) => {
     const src = srcOf(n.file);
     const { line, column } = lineCol(src, n.range?.start ?? 0);
     const kind = ATLAS_KINDS.has(n.kind as AtlasNode["kind"]) ? (n.kind as AtlasNode["kind"]) : "function";
+    // slice the real definition body for the rule engine (functions only)
+    if (kind === "function" && n.bodyRange)
+      functionSources.set(n.id, src.slice(n.bodyRange.start, n.bodyRange.end));
     return {
       id: n.id,
       kind,
@@ -101,5 +115,5 @@ export async function buildMultiLangGraph(
   }
 
   const diagnostics = g.diagnostics.map((d) => ({ path: d.file ?? "", message: d.message }));
-  return { version: "ts-0.1", revision, nodes, edges, diagnostics };
+  return { graph: { version: "ts-0.1", revision, nodes, edges, diagnostics }, functionSources };
 }

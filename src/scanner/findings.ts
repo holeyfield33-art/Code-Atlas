@@ -60,23 +60,24 @@ function matches(when: Rule["when"], fnName: string, src: string, kind: Rule["ki
   return true;
 }
 
-export function scan(graph: AtlasGraph, sources: SourceFile[], rules: Rule[] = DEFAULT_RULES):
-  { findings: Finding[]; asiSnapshot?: AsiSnapshot } {
-  const srcByPath = new Map(sources.map((s) => [s.path, s.code]));
-  const fnSrcCache = new Map<string, Map<string, string>>();
-  const fnSrc = (path: string) => {
-    if (!fnSrcCache.has(path)) fnSrcCache.set(path, functionSources(srcByPath.get(path) ?? ""));
-    return fnSrcCache.get(path)!;
-  };
+/** Core rule evaluation shared by both backends. `srcForNode` returns the real
+ *  source slice of a function node's body (Babel-sliced for JS/TS; tree-sitter-
+ *  sliced for Python/Ruby), or undefined when no slice is available. Everything
+ *  else — grounding, grade-gated blast radius, ASI linking — is identical, so a
+ *  non-JS finding carries exactly the same honesty rails as a JS one. */
+function evalRules(
+  graph: AtlasGraph,
+  fnNodes: AtlasGraph["nodes"],
+  rules: Rule[],
+  srcForNode: (node: AtlasGraph["nodes"][number]) => string | undefined,
+): { findings: Finding[]; usedClasses: Map<string, { id: string; label: string; mitigation: string; url: string }> } {
   const callersOf = (nodeId: string) =>
     graph.edges.filter((e) => e.kind === "calls" && e.to === nodeId).map((e) => e.from);
-
-  const fnNodes = graph.nodes.filter((n) => n.kind === "function");
   const findings: Finding[] = [];
   const usedClasses = new Map<string, { id: string; label: string; mitigation: string; url: string }>();
 
   for (const node of fnNodes) {
-    const src = fnSrc(node.evidence.path).get(node.label);
+    const src = srcForNode(node);
     if (!src) continue;
     for (const rule of rules) {
       if (!matches(rule.when, node.label, src, rule.kind)) continue;
@@ -95,12 +96,40 @@ export function scan(graph: AtlasGraph, sources: SourceFile[], rules: Rule[] = D
       findings.push(f);
     }
   }
+  return { findings, usedClasses };
+}
 
-  const asiSnapshot: AsiSnapshot | undefined = usedClasses.size
+function asiSnapshotFrom(usedClasses: Map<string, { id: string; label: string; mitigation: string; url: string }>): AsiSnapshot | undefined {
+  return usedClasses.size
     ? { source: "Agent Security Index (bridge)", revision: "draft-local", asOf: today(),
         baseUrl: "https://index.aletheia-core.com", classes: [...usedClasses.values()] }
     : undefined;
-  return { findings, asiSnapshot };
+}
+
+/** Native scan over the JS/TS slice (Babel-sliced function bodies). */
+export function scan(graph: AtlasGraph, sources: SourceFile[], rules: Rule[] = DEFAULT_RULES):
+  { findings: Finding[]; asiSnapshot?: AsiSnapshot } {
+  const srcByPath = new Map(sources.map((s) => [s.path, s.code]));
+  const fnSrcCache = new Map<string, Map<string, string>>();
+  const fnSrc = (path: string) => {
+    if (!fnSrcCache.has(path)) fnSrcCache.set(path, functionSources(srcByPath.get(path) ?? ""));
+    return fnSrcCache.get(path)!;
+  };
+  const fnNodes = graph.nodes.filter((n) => n.kind === "function");
+  const { findings, usedClasses } = evalRules(graph, fnNodes, rules, (node) => fnSrc(node.evidence.path).get(node.label));
+  return { findings, asiSnapshot: asiSnapshotFrom(usedClasses) };
+}
+
+/** Native scan over a non-JS (tree-sitter) slice. `functionSrc` maps a function
+ *  node id to its real source body (from the tree-sitter definition range), so
+ *  no JS parser is needed. Only nodes present in the map are scanned; others are
+ *  left untouched — the same grounding and grade rules apply. */
+export function scanGeneric(graph: AtlasGraph, functionSrc: Map<string, string>, rules: Rule[]):
+  { findings: Finding[]; asiSnapshot?: AsiSnapshot } {
+  const ids = new Set(functionSrc.keys());
+  const fnNodes = graph.nodes.filter((n) => n.kind === "function" && ids.has(n.id));
+  const { findings, usedClasses } = evalRules(graph, fnNodes, rules, (node) => functionSrc.get(node.id));
+  return { findings, asiSnapshot: asiSnapshotFrom(usedClasses) };
 }
 
 function today() { return new Date().toISOString().slice(0, 10); }
