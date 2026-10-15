@@ -2,7 +2,7 @@
  * Minimal, dependency-free workspace scanner. Walks a repo, skips the usual
  * noise, returns JS/TS files within size limits. No code is executed.
  */
-import { readdirSync, statSync, readFileSync } from "node:fs";
+import { readdirSync, lstatSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 const IGNORE_DIRS = new Set([
@@ -27,9 +27,13 @@ export function scanWorkspace(root: string, opts: ScanOptions = {}): { files: Sc
       if (IGNORE_DIRS.has(name)) continue;
       const abs = join(dir, name);
       let st;
-      try { st = statSync(abs); } catch { continue; }
+      // lstat (not stat) so we see the link itself, not its target. A symlink is
+      // never followed — this keeps the scan inside the repo and blocks a crafted
+      // link (e.g. leak.ts -> /etc/passwd) from pulling host files into the bundle.
+      try { st = lstatSync(abs); } catch { continue; }
+      if (st.isSymbolicLink()) continue;
       if (st.isDirectory()) walk(abs);
-      else if (JS_TS.test(name) && st.size <= maxBytes)
+      else if (st.isFile() && JS_TS.test(name) && st.size <= maxBytes)
         files.push({ relativePath: relative(root, abs).split(sep).join("/"), absolutePath: abs });
     }
   };

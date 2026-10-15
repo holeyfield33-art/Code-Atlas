@@ -189,6 +189,18 @@ export function ingestVibeExplainer(ve: any, graph: AtlasGraph):
   return { findings, asiSnapshot, unmapped };
 }
 
+/** An external report's grade is a CLAIM, not our verification. Runtime grades
+ *  (OBSERVED/TESTED) require evidence we did not produce, so cap them to INFERRED. */
+function capExternalGrade(g: ExternalFinding["grade"]): Finding["grade"] {
+  return (g === "OBSERVED" || g === "TESTED") ? "INFERRED" : g;
+}
+/** Only http(s) ASI links are kept; a `javascript:`/`data:` url is dropped so it
+ *  can never reach an href sink in the viewer (defense in depth with the viewer). */
+function isHttpUrl(u: string | undefined): boolean {
+  if (!u) return false;
+  try { const p = new URL(u); return p.protocol === "http:" || p.protocol === "https:"; } catch { return false; }
+}
+
 export function ingestReport(report: ExternalFinding[], graph: AtlasGraph):
   { findings: Finding[]; unmapped: ExternalFinding[] } {
   const findings: Finding[] = []; const unmapped: ExternalFinding[] = [];
@@ -200,12 +212,13 @@ export function ingestReport(report: ExternalFinding[], graph: AtlasGraph):
       : undefined;
     if (!node) node = graph.nodes.find((n) => n.kind === "file" && n.label === r.file);
     if (!node) { unmapped.push(r); continue; }
+    const grade = capExternalGrade(r.grade);
     findings.push({
       id: r.id, nodeRefs: [node.id], kind: r.kind, title: r.title, explanation: r.explanation,
-      grade: r.grade,                                   // taken as-is, never upgraded
-      evidence: [{ source: "external-report", detail: "mapped from " + r.file + (r.symbol ? "#" + r.symbol : "") }],
+      grade,                                            // external claim, capped — never OBSERVED/TESTED
+      evidence: [{ source: "external-report", detail: "mapped from " + r.file + (r.symbol ? "#" + r.symbol : "") + (grade !== r.grade ? ` (claimed ${r.grade}, capped to ${grade})` : "") }],
       blastRadius: r.kind === "weakness" ? callersOf(node.id) : [],
-      ...(r.asiRef ? { asiRef: r.asiRef } : {}),
+      ...(isHttpUrl(r.asiRef?.url) ? { asiRef: r.asiRef } : {}),
     });
   }
   return { findings, unmapped };

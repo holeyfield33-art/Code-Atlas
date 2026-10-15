@@ -2,6 +2,13 @@
 
 Turn a repository into a **source-grounded 3D code map** and a **grounded Break & Fix course** — one local command, one self-contained viewer, no server.
 
+> The viewer is **self-contained**: the graph, course, and source are inlined as
+> local data, and the 3D rendering library (`3d-force-graph` 1.76.0, MIT) is
+> bundled into the file itself — **no CDN and no external script execution**, so a
+> generated viewer runs fully offline. (It still links Google Fonts for
+> typography; that's a cosmetic request that cannot read page data and falls back
+> to system fonts with no network.)
+
 > Working name. The product name is not hardcoded: it is read from the bundle and set with `--product`.
 
 ## What it does
@@ -17,7 +24,12 @@ open atlas/viewer.html              # double-click — the 3D map + course
 `build` scans the repo, builds a call/import graph with Babel, generates grounded exercises, and writes:
 
 - `atlas/atlas.bundle.json` — the graph + course, validated against the schema.
-- `atlas/viewer.html` — a self-contained 3D viewer with the bundle inlined.
+- `atlas/viewer.html` — the 3D viewer with the bundle inlined as local data (the
+  bundle is injected as inert JSON and parsed, never executed). Secret-like values
+  in inlined source are redacted on a **best-effort, pattern-based** basis, and any
+  function whose source carries a secret is dropped from the course rather than
+  shown. This is a safeguard, not a guarantee: a generated viewer still carries
+  real source, so review it before sharing a repo you consider private.
 
 ## How it stays honest
 
