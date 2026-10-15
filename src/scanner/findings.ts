@@ -55,7 +55,34 @@ function matches(when: Rule["when"], fnName: string, src: string, kind: Rule["ki
   if (when.nameMatches && !new RegExp(when.nameMatches, "i").test(fnName)) return false;
   if (when.callsAny && !when.callsAny.some((n) => callsName(src, n, freeOnly))) return false;
   if (when.callsNoneOf && when.callsNoneOf.some((n) => callsName(src, n))) return false;        // guards: any call form
+  if (when.guardText && when.guardText.some((t) => src.includes(t))) return false;              // keyword-arg guards
   // a rule with only callsNoneOf would match everything — require at least one positive signal
+  if (!when.nameMatches && !when.callsAny) return false;
+  return true;
+}
+
+/** Does a tree-sitter-captured qualified call token match a rule token?
+ *  - a QUALIFIED rule token (`os.system`, `Marshal.load`) matches the same token
+ *    or a deeper-receiver form ending in `.os.system`, but NOT an unrelated
+ *    `foo.run` for `subprocess.run` — precision is kept.
+ *  - a BARE rule token (`eval`, `system`) matches by LAST SEGMENT, so it matches
+ *    both `eval` and `Kernel.system`. */
+function callTokenMatches(callToken: string, ruleToken: string): boolean {
+  if (ruleToken.includes(".")) return callToken === ruleToken || callToken.endsWith("." + ruleToken);
+  return (callToken.split(".").pop() || callToken) === ruleToken;
+}
+const anyCall = (tokens: string[], ruleTokens: string[]) =>
+  ruleTokens.some((rt) => tokens.some((ct) => callTokenMatches(ct, rt)));
+
+/** Non-JS matcher: SINKS/validators are matched against REAL parsed call tokens
+ *  (no regex over source — so comments/strings never match and paren-less calls
+ *  do). `guardText` still checks the body text, but it only ever SUPPRESSES a
+ *  finding (e.g. an explicit `SafeLoader=`), so a lenient check is conservative. */
+function matchesGeneric(when: Rule["when"], fnName: string, callTokens: string[], bodySrc: string): boolean {
+  if (when.nameMatches && !new RegExp(when.nameMatches, "i").test(fnName)) return false;
+  if (when.callsAny && !anyCall(callTokens, when.callsAny)) return false;
+  if (when.callsNoneOf && anyCall(callTokens, when.callsNoneOf)) return false;                  // guard CALLS
+  if (when.guardText && when.guardText.some((t) => bodySrc.includes(t))) return false;          // keyword-arg guards
   if (!when.nameMatches && !when.callsAny) return false;
   return true;
 }
@@ -69,7 +96,7 @@ function evalRules(
   graph: AtlasGraph,
   fnNodes: AtlasGraph["nodes"],
   rules: Rule[],
-  srcForNode: (node: AtlasGraph["nodes"][number]) => string | undefined,
+  matchNode: (node: AtlasGraph["nodes"][number], rule: Rule) => boolean,
 ): { findings: Finding[]; usedClasses: Map<string, { id: string; label: string; mitigation: string; url: string }> } {
   const callersOf = (nodeId: string) =>
     graph.edges.filter((e) => e.kind === "calls" && e.to === nodeId).map((e) => e.from);
@@ -77,10 +104,8 @@ function evalRules(
   const usedClasses = new Map<string, { id: string; label: string; mitigation: string; url: string }>();
 
   for (const node of fnNodes) {
-    const src = srcForNode(node);
-    if (!src) continue;
     for (const rule of rules) {
-      if (!matches(rule.when, node.label, src, rule.kind)) continue;
+      if (!matchNode(node, rule)) continue;
       const blast = (rule.kind === "weakness" && rule.blast === "callers" && castsBlast(rule.grade)) ? callersOf(node.id) : [];
       const f: Finding = {
         id: rule.id + ":" + node.id,
@@ -116,19 +141,28 @@ export function scan(graph: AtlasGraph, sources: SourceFile[], rules: Rule[] = D
     return fnSrcCache.get(path)!;
   };
   const fnNodes = graph.nodes.filter((n) => n.kind === "function");
-  const { findings, usedClasses } = evalRules(graph, fnNodes, rules, (node) => fnSrc(node.evidence.path).get(node.label));
+  const { findings, usedClasses } = evalRules(graph, fnNodes, rules, (node, rule) => {
+    const src = fnSrc(node.evidence.path).get(node.label);
+    return src ? matches(rule.when, node.label, src, rule.kind) : false;
+  });
   return { findings, asiSnapshot: asiSnapshotFrom(usedClasses) };
 }
 
-/** Native scan over a non-JS (tree-sitter) slice. `functionSrc` maps a function
- *  node id to its real source body (from the tree-sitter definition range), so
- *  no JS parser is needed. Only nodes present in the map are scanned; others are
- *  left untouched — the same grounding and grade rules apply. */
-export function scanGeneric(graph: AtlasGraph, functionSrc: Map<string, string>, rules: Rule[]):
-  { findings: Finding[]; asiSnapshot?: AsiSnapshot } {
+/** Native scan over a non-JS (tree-sitter) slice. Sinks/validators are matched
+ *  against REAL parsed call tokens (`functionCalls`), not regex over source, so
+ *  paren-less calls are covered and comments/strings never match. `functionSrc`
+ *  (the body text) is used only for name-based rules and `guardText` suppression.
+ *  Only function nodes with a body slice are scanned; same grounding + grade rules. */
+export function scanGeneric(
+  graph: AtlasGraph,
+  functionSrc: Map<string, string>,
+  functionCalls: Map<string, string[]>,
+  rules: Rule[],
+): { findings: Finding[]; asiSnapshot?: AsiSnapshot } {
   const ids = new Set(functionSrc.keys());
   const fnNodes = graph.nodes.filter((n) => n.kind === "function" && ids.has(n.id));
-  const { findings, usedClasses } = evalRules(graph, fnNodes, rules, (node) => functionSrc.get(node.id));
+  const { findings, usedClasses } = evalRules(graph, fnNodes, rules, (node, rule) =>
+    matchesGeneric(rule.when, node.label, functionCalls.get(node.id) ?? [], functionSrc.get(node.id) ?? ""));
   return { findings, asiSnapshot: asiSnapshotFrom(usedClasses) };
 }
 

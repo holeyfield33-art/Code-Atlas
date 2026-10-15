@@ -2,10 +2,13 @@
  * Native threat rules for non-JS graphs (Python + Ruby rule packs).
  *
  * Proves the tree-sitter backends now get native findings, with the SAME honesty
- * rails as the JS/TS scanner:
+ * rails as the JS/TS scanner, and that matching runs over REAL parsed calls:
  *  - a sink match produces a STATIC lead (never OBSERVED/TESTED);
  *  - a STATIC lead casts NO blast radius (grade gate holds for non-JS too);
- *  - a visible guard (shlex / safe_load) suppresses the matching sink rule;
+ *  - a visible guard (shlex / Shellwords / SafeLoader) suppresses the sink rule;
+ *  - a paren-less Ruby command call (`system cmd`) is still caught;
+ *  - a sink mentioned only in a COMMENT or STRING is NOT flagged (call-token
+ *    matching, not regex over source);
  *  - every finding maps to a real node; the bundle stays schema-valid.
  */
 import assert from "node:assert";
@@ -18,12 +21,14 @@ import { parseBundle } from "../src/schema.js";
 const root = mkdtempSync(join(tmpdir(), "atlas-threat-"));
 mkdirSync(join(root, "app"), { recursive: true });
 
-// --- Python: a command-exec sink, a dynamic-eval sink, a secret handler, and a
-//     GUARDED shell-out that must NOT trip the os-command rule. ---
+// --- Python: real sinks, a secret handler, and three MUST-NOT-FLAG cases:
+//     a shlex-guarded shell-out, a SafeLoader-guarded yaml.load, and a function
+//     whose only "os.system" text is in a docstring + a string literal. ---
 writeFileSync(join(root, "app", "danger.py"),
   "import os\n" +
   "import subprocess\n" +
   "import shlex\n" +
+  "import yaml\n" +
   "\n" +
   "def run_cmd(c):\n" +
   "    return os.system(c)\n" +            // py-os-command
@@ -35,15 +40,23 @@ writeFileSync(join(root, "app", "danger.py"),
   "    return lookup(user)\n" +
   "\n" +
   "def safe_cmd(c):\n" +
-  "    return subprocess.run(shlex.split(c))\n"  // GUARDED: shlex.split present -> no finding
+  "    return subprocess.run(shlex.split(c))\n" +  // GUARDED: shlex.split -> no finding
+  "\n" +
+  "def load_safe(data):\n" +
+  "    return yaml.load(data, Loader=yaml.SafeLoader)\n" +  // GUARDED: SafeLoader kwarg -> no finding
+  "\n" +
+  "def looks_scary(x):\n" +
+  "    \"\"\"do not call os.system here\"\"\"\n" +  // comment/docstring mention only
+  "    note = \"eval(x) is dangerous\"\n" +         // string literal mention only
+  "    return lookup(x)\n"                          // real call is harmless -> no finding
 );
 // a top-level helper so run_cmd has a resolvable callee / caller graph exists
 writeFileSync(join(root, "app", "util.py"), "def lookup(u):\n    return u\n");
 
-// --- Ruby: a system() sink and a guarded one. ---
+// --- Ruby: a paren-less system command call, and a guarded one. ---
 writeFileSync(join(root, "app", "danger.rb"),
   "def shell(cmd)\n" +
-  "  system(cmd)\n" +                      // rb-os-command
+  "  system cmd\n" +                       // rb-os-command, PAREN-LESS command syntax
   "end\n" +
   "\n" +
   "def safe_shell(cmd)\n" +
@@ -63,12 +76,17 @@ assert.ok(idStarts("py-code-exec:").length === 1, "python eval flagged once");
 assert.ok(idStarts("py-raw-secret:").length === 1, "python secret-like handler flagged once");
 assert.ok(idStarts("rb-os-command:").length === 1, "ruby system() flagged once");
 
-// the guarded functions do NOT produce an os-command weakness
+// the guarded + benign functions produce NO weakness at all
 const flaggedNodes = new Set(findings.flatMap((f) => f.nodeRefs));
 const nodeLabel = (id: string) => bundle.graph.nodes.find((n) => n.id === id)?.label;
-const osCmdTargets = idStarts("py-os-command:").concat(idStarts("rb-os-command:")).flatMap((f) => f.nodeRefs).map(nodeLabel);
-assert.ok(!osCmdTargets.includes("safe_cmd"), "guarded python shell-out (shlex.split) is not flagged");
-assert.ok(!osCmdTargets.includes("safe_shell"), "guarded ruby shell-out (Shellwords.escape) is not flagged");
+const weaknessLabels = findings.filter((f) => f.kind === "weakness").flatMap((f) => f.nodeRefs).map(nodeLabel);
+assert.ok(!weaknessLabels.includes("safe_cmd"), "guarded python shell-out (shlex.split) is not flagged");
+assert.ok(!weaknessLabels.includes("safe_shell"), "guarded ruby shell-out (Shellwords.escape) is not flagged");
+assert.ok(!weaknessLabels.includes("load_safe"), "yaml.load with SafeLoader kwarg is not flagged (guardText)");
+assert.ok(!weaknessLabels.includes("looks_scary"), "sink text in a comment/string is NOT flagged (call-token matching, not regex)");
+
+// paren-less `system cmd` was still caught (matched via a real parsed call node)
+assert.ok(weaknessLabels.includes("shell"), "paren-less ruby `system cmd` is flagged");
 
 // honesty: every native (py-/rb-) finding is STATIC and casts NO blast
 const native = findings.filter((f) => /^(py|rb)-/.test(f.id));

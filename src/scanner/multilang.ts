@@ -26,7 +26,7 @@ const require = createRequire(import.meta.url);
 interface GenericNode { id: string; kind: string; name?: string; file?: string; range?: { start: number; end: number }; bodyRange?: { start: number; end: number }; meta?: unknown; }
 interface GenericEdge { id: string; kind: string; source: string; target: string; meta?: unknown; }
 interface GenericDiag { severity?: string; message: string; file?: string; range?: unknown; }
-interface GenericGraph { nodes: GenericNode[]; edges: GenericEdge[]; diagnostics: GenericDiag[]; }
+interface GenericGraph { nodes: GenericNode[]; edges: GenericEdge[]; diagnostics: GenericDiag[]; callTokens?: Record<string, string[]>; }
 const mapper = require("./treeSitter/mapper.cjs") as {
   buildGraph(lang: string, fileContents: Map<string, string>, projectRoot: string): Promise<GenericGraph>;
 };
@@ -61,6 +61,10 @@ export function languageOf(path: string): MultiLang | null {
 export interface MultiLangBuild {
   graph: AtlasGraph;
   functionSources: Map<string, string>;
+  /** function node id -> qualified callee tokens found in its body, grounded in
+   *  real parsed call nodes (paren-less calls included; comments/strings not).
+   *  The native rule engine matches sinks/guards against these, not raw text. */
+  functionCalls: Map<string, string[]>;
 }
 
 /**
@@ -115,5 +119,6 @@ export async function buildMultiLangGraph(
   }
 
   const diagnostics = g.diagnostics.map((d) => ({ path: d.file ?? "", message: d.message }));
-  return { graph: { version: "ts-0.1", revision, nodes, edges, diagnostics }, functionSources };
+  const functionCalls = new Map<string, string[]>(Object.entries(g.callTokens ?? {}));
+  return { graph: { version: "ts-0.1", revision, nodes, edges, diagnostics }, functionSources, functionCalls };
 }

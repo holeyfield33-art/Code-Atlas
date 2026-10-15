@@ -129,6 +129,11 @@ function extractFromTree(tree, source, filePath, lang, query) {
     } else if (role === 'reference') {
       references.push({
         name,
+        // Fully-qualified callee token (e.g. `os.system`, `Marshal.load`), derived
+        // from the real call node — distinct from the bare captured `name`. Lets
+        // the native rule engine match qualified sinks precisely. Comes from a
+        // parsed call, so paren-less calls are included and comments/strings are not.
+        qualified: qualifiedCallee(defOrRef, name, lang),
         kind, // call, class, ...
         range,
         file: filePath,
@@ -138,6 +143,31 @@ function extractFromTree(tree, source, filePath, lang, query) {
   }
 
   return { localNodes, definitions, references, fileId };
+}
+
+/** Reconstruct the qualified callee token from a call node (or a bare
+ *  identifier/constant used as a command call). Falls back to the bare name. */
+function qualifiedCallee(callNode, bareName, lang) {
+  try {
+    if (!callNode) return bareName;
+    if (lang === 'python') {
+      if (callNode.type === 'call') {
+        const fn = callNode.childForFieldName('function');
+        if (fn && fn.text) return fn.text;        // `os.system`, `yaml.load`, `eval`
+      }
+      return bareName;
+    }
+    if (lang === 'ruby') {
+      if (callNode.type === 'call') {
+        const recv = callNode.childForFieldName('receiver');
+        const m = callNode.childForFieldName('method');
+        const method = (m && m.text) ? m.text : bareName;
+        return recv && recv.text ? recv.text + '.' + method : method; // `Marshal.load`, `system`
+      }
+      return bareName;                            // bare identifier/constant command call
+    }
+  } catch { /* fall through */ }
+  return bareName;
 }
 
 /**
@@ -349,7 +379,27 @@ async function buildGraph(lang, fileContents /* Map<path, source> */, projectRoo
     }
   }
 
-  return { nodes, edges, diagnostics };
+  // Pass 4: attribute each call's qualified token to the INNERMOST enclosing
+  // definition (by bodyRange), for the native rule engine. Grounded: tokens come
+  // from real parsed call nodes, so comments/strings never appear and paren-less
+  // calls do. Keyed by node id.
+  const callTokens = {};
+  for (const [, { references, localNodes }] of perFile) {
+    const defs = localNodes.filter((n) => n.bodyRange); // function/class/method defs
+    for (const ref of references) {
+      if (ref.kind !== 'call') continue;
+      let best = null;
+      for (const d of defs) {
+        if (ref.range.start >= d.bodyRange.start && ref.range.end <= d.bodyRange.end) {
+          if (!best || (d.bodyRange.end - d.bodyRange.start) < (best.bodyRange.end - best.bodyRange.start)) best = d;
+        }
+      }
+      if (!best) continue; // top-level call; not inside a function
+      (callTokens[best.id] ||= []).push(ref.qualified || ref.name);
+    }
+  }
+
+  return { nodes, edges, diagnostics, callTokens };
 }
 
 /**

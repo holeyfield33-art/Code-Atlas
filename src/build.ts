@@ -66,15 +66,15 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
   if (jsSources.length) graphs.push(buildGraph(revision, jsSources));
 
   const perLangCounts: Record<string, number> = {};
-  // Per-non-JS-language function source slices, for the native rule engine.
-  const langFnSources: Array<{ lang: MultiLang; functionSources: Map<string, string> }> = [];
+  // Per-non-JS-language function bodies + parsed call tokens, for the rule engine.
+  const langFnSources: Array<{ lang: MultiLang; functionSources: Map<string, string>; functionCalls: Map<string, string[]> }> = [];
   for (const lang of ["python", "ruby"] as MultiLang[]) {
     const files = byLang[lang];
     if (!files.length) continue;
     perLangCounts[lang] = files.length;
     const built = await buildMultiLangGraph(lang, srcMap(files), revision, ".");
     graphs.push(built.graph);
-    langFnSources.push({ lang, functionSources: built.functionSources });
+    langFnSources.push({ lang, functionSources: built.functionSources, functionCalls: built.functionCalls });
   }
 
   const graph = mergeGraphs(revision, graphs);
@@ -90,10 +90,10 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
     security = scan(graph, jsSources, rules);
     // A custom pack (opts.rules) replaces the JS defaults only; the language
     // packs are built-in and always applied to their backend's nodes.
-    for (const { lang, functionSources } of langFnSources) {
+    for (const { lang, functionSources, functionCalls } of langFnSources) {
       const pack = LANGUAGE_RULES[lang];
       if (!pack || !functionSources.size) continue;
-      const r = scanGeneric(graph, functionSources, pack);
+      const r = scanGeneric(graph, functionSources, functionCalls, pack);
       security = {
         findings: [...(security.findings ?? []), ...r.findings],
         asiSnapshot: mergeAsi(security.asiSnapshot, r.asiSnapshot),

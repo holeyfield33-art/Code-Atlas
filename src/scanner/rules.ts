@@ -17,6 +17,11 @@ export interface RuleWhen {
   callsNoneOf?: string[];
   /** Function name matches this regex (case-insensitive). */
   nameMatches?: string;
+  /** Suppress the finding if any of these substrings appears in the body text.
+   *  For guards that are NOT calls (e.g. a keyword argument `Loader=SafeLoader`),
+   *  which call-token matching can't see. Only ever REMOVES a finding, so a
+   *  lenient text check here is conservative. */
+  guardText?: string[];
 }
 
 export interface Rule {
@@ -74,20 +79,18 @@ export const DEFAULT_RULES: Rule[] = [
 /**
  * Language-native rule packs for the tree-sitter backends (Python, Ruby).
  *
- * The engine (findings.ts) is language-agnostic: it matches a weakness rule's
- * `callsAny` as a FREE/imported call (`name(`, not `recv.name(`). So each sink
- * here is written FULLY QUALIFIED (`os.system`, `subprocess.run`, `Marshal.load`)
- * — the module/namespace token is literal, which both matches the real call form
- * in these languages AND stays precise (it can't be spoofed by an arbitrary
- * receiver). Bare builtins (`eval`, `exec`) match directly.
+ * The engine (findings.ts `scanGeneric`) matches `callsAny`/`callsNoneOf` against
+ * the QUALIFIED CALL TOKENS the mapper captured from real parsed call nodes — not
+ * a regex over source. So comments and strings never match, and paren-less calls
+ * (`system cmd`, `Marshal.load payload`) are covered. A token with a dot
+ * (`os.system`, `Marshal.load`) matches that callee or a deeper-receiver form but
+ * stays precise (never an unrelated `foo.run` for `subprocess.run`); a bare token
+ * (`eval`, `system`) matches by last segment. `guardText` handles non-call guards
+ * (e.g. a `Loader=SafeLoader` keyword arg) and only ever suppresses a finding.
  *
  * Every rule is STATIC: a structural lead, not proof the input is attacker-
  * controlled or the path reachable. Blast radius stays empty (the engine only
  * casts it for OBSERVED/TESTED), so an unverified lead paints no neighbours.
- *
- * Honest limit: receiver-method sinks whose receiver is a runtime value
- * (`cursor.execute(sql)`) are NOT matched — that needs receiver/type awareness
- * the static name matcher does not have. Tracked as a follow-up.
  */
 export const PYTHON_RULES: Rule[] = [
   {
@@ -116,7 +119,7 @@ export const PYTHON_RULES: Rule[] = [
     title: "Unsafe deserialization",
     explanation:
       "This function deserializes with a primitive that can execute code or construct arbitrary objects (pickle / marshal / yaml.load without SafeLoader). Static lead — not proof the payload is untrusted.",
-    when: { callsAny: ["pickle.loads", "pickle.load", "marshal.loads", "marshal.load", "yaml.load"], callsNoneOf: ["safe_load"] },
+    when: { callsAny: ["pickle.loads", "pickle.load", "marshal.loads", "marshal.load", "yaml.load"], callsNoneOf: ["safe_load"], guardText: ["SafeLoader"] },
     blast: "callers",
     asi: asi("AAC-11"),
   },
