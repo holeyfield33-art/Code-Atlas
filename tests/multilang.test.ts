@@ -54,6 +54,10 @@ for (const { lang, dir, exts } of cases) {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const fnOriginCalls = graph.edges.filter((e) => e.kind === "calls" && byId.get(e.from)?.kind === "function");
   assert.ok(fnOriginCalls.length >= 1, `${lang}: at least one calls edge originates from a function node (enclosing attribution)`);
+  // a constant/assignment is not a scope: no calls edge may originate from one
+  // (a top-level `X = helper()` attributes to the file, not the constant).
+  assert.ok(!graph.edges.some((e) => e.kind === "calls" && byId.get(e.from)?.kind === "constant"),
+    `${lang}: no calls edge originates from a constant (non-scope)`);
 
   // the seam: feed the graph through the EXISTING assembler and validate.
   // (Course is JS/TS-only for now, so no sources are passed — the graph+threat

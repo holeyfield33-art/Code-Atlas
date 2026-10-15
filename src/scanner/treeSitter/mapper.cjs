@@ -121,8 +121,12 @@ function extractFromTree(tree, source, filePath, lang, query) {
       localNodes.push(node);
       if (!definitions.has(name)) definitions.set(name, []);
       definitions.get(name).push({ id: nodeId, kind: node.kind, range, file: filePath });
-      // record the definition's FULL extent so calls inside it attribute to it
-      defSpans.push({ start: defOrRef.startIndex, end: defOrRef.endIndex, id: nodeId });
+      // record the FULL extent of SCOPE-BEARING definitions so calls inside them
+      // attribute to the enclosing scope. A constant (an assignment like
+      // `X = helper()`) is NOT a scope — including it would make a top-level call
+      // attribute to the constant instead of the file. Scopes only.
+      if (kind === 'function' || kind === 'method' || kind === 'class' || kind === 'module')
+        defSpans.push({ start: defOrRef.startIndex, end: defOrRef.endIndex, id: nodeId });
       // contains edge: file → definition
       // (emitted later)
     } else if (role === 'reference') {
