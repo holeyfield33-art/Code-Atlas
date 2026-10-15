@@ -11,6 +11,7 @@ import { buildGraph } from "./scanner/graph.js";
 import { scan, ingestVibeExplainer } from "./scanner/findings.js";
 import { DEFAULT_RULES, validateRules } from "./scanner/rules.js";
 import { redactSecrets } from "./scanner/redact.js";
+import { extractVueScript } from "./scanner/vue.js";
 import { buildMultiLangGraph, type MultiLang } from "./scanner/multilang.js";
 import { generateCourse, assembleBundle } from "./generator/generator.js";
 import type { AtlasGraph, AtlasBundle } from "./schema.js";
@@ -47,11 +48,23 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
   const scanned = scanWorkspace(root);
   if (!scanned.files.length) throw new Error("No supported source files (JS/TS, Python, Ruby) found under " + root);
 
-  const byLang = { js: [] as typeof scanned.files, python: [] as typeof scanned.files, ruby: [] as typeof scanned.files };
+  const byLang = {
+    js: [] as typeof scanned.files,
+    python: [] as typeof scanned.files,
+    ruby: [] as typeof scanned.files,
+    vue: [] as typeof scanned.files,
+  };
   for (const f of scanned.files) byLang[f.language].push(f);
   const srcMap = (fs: typeof scanned.files) => new Map(fs.map((f) => [f.relativePath, readSource(f.absolutePath)]));
 
   const jsSources = byLang.js.map((f) => ({ path: f.relativePath, code: readSource(f.absolutePath) }));
+  // A .vue SFC routes its <script> block to the Babel backend via a position-
+  // preserving shim, so node line/columns map to the real .vue (the inlined
+  // source below is the real file). A component with no <script> is skipped.
+  for (const f of byLang.vue) {
+    const shim = extractVueScript(readSource(f.absolutePath));
+    if (shim) jsSources.push({ path: f.relativePath, code: shim });
+  }
   const graphs: AtlasGraph[] = [];
   if (jsSources.length) graphs.push(buildGraph(revision, jsSources));
 
@@ -93,6 +106,7 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
   const bundle = assembleBundle(graph, course, { product, repoLabel: label }, security, inlined);
   const langSummary = [
     byLang.js.length ? `${byLang.js.length} js/ts` : "",
+    byLang.vue.length ? `${byLang.vue.length} vue` : "",
     ...Object.entries(perLangCounts).map(([l, c]) => `${c} ${l}`),
   ].filter(Boolean).join(", ");
 
