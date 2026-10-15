@@ -238,9 +238,11 @@ function resolveImport(specifier, fromFile, projectFiles, lang, isRelative) {
     }
     const norm = path.normalize(rel).replace(/\\/g, '/');
     if (projectFiles.has(norm)) return norm;
-    for (const f of projectFiles) {
-      if (f.endsWith('/' + path.basename(rel)) || f.endsWith(rel)) return f;
-    }
+    // Collect ALL basename/suffix matches; resolve only when exactly one exists.
+    // Two files sharing a basename (lib/a/utils.rb, lib/b/utils.rb) is ambiguous,
+    // not first-wins — return null so the caller records a diagnostic (grounding).
+    const matches = [...projectFiles].filter((f) => f.endsWith('/' + path.basename(rel)) || f.endsWith(rel));
+    return matches.length === 1 ? matches[0] : null;
   }
   return null;
 }

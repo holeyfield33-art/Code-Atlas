@@ -40,6 +40,8 @@ for (const { lang, dir, exts } of cases) {
   // every element carries the tree-sitter method literal + source-backed evidence
   assert.ok(graph.nodes.every((n) => n.evidence.method === "tree-sitter-static" && n.evidence.contentHash.startsWith("sha256:")),
     `${lang}: nodes are source-backed via the tree-sitter backend`);
+  // evidence line/column are 1-based, matching the Babel backend + viewer/MCP
+  assert.ok(graph.nodes.every((n) => n.evidence.line >= 1 && n.evidence.column >= 1), `${lang}: evidence is 1-based`);
   // unique ids
   assert.strictEqual(new Set(graph.edges.map((e) => e.id)).size, graph.edges.length, `${lang}: edge ids unique`);
 

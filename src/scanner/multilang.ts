@@ -38,12 +38,14 @@ const sha256 = (s: string) => "sha256:" + createHash("sha256").update(s).digest(
 const ATLAS_KINDS = new Set<AtlasNode["kind"]>(["file", "function", "class", "constant", "module"]);
 const EDGE_KINDS = new Set<AtlasEdge["kind"]>(["contains", "imports", "calls"]);
 
-/** 0-based line/column from a character offset (matches the Babel backend's base). */
+/** 1-based line/column from a character offset — matches the Babel backend
+ *  (loc.start.line is 1-based; it stores column as loc.start.column + 1), which
+ *  is what the viewer and MCP source slicing expect. */
 function lineCol(source: string, offset: number): { line: number; column: number } {
   const n = Math.min(Math.max(offset, 0), source.length);
   let line = 0, lastNewline = -1;
   for (let i = 0; i < n; i++) if (source.charCodeAt(i) === 10) { line++; lastNewline = i; }
-  return { line, column: n - lastNewline - 1 };
+  return { line: line + 1, column: n - lastNewline };
 }
 
 export function languageOf(path: string): MultiLang | null {
