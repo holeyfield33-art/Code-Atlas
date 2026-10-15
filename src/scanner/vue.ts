@@ -20,7 +20,13 @@ const SCRIPT_RE = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
  */
 export function extractVueScript(vue: string): string | null {
   // Base: same length, newlines kept (line parity), everything else a space.
-  const arr: string[] = Array.from(vue, (c) => (c === "\n" ? "\n" : " "));
+  // Index by UTF-16 CODE UNIT (vue[i]), not code point — regex `.index`, string
+  // `.length` and the offsets below are all code-unit based, so Array.from
+  // (which iterates code points) would desync them whenever an astral char
+  // (e.g. an emoji) appears before <script>, corrupting the shim. A lone
+  // surrogate half is not "\n", so it blanks to a space: length stays identical.
+  const arr: string[] = new Array(vue.length);
+  for (let i = 0; i < vue.length; i++) arr[i] = vue[i] === "\n" ? "\n" : " ";
   let found = false;
   let m: RegExpExecArray | null;
   SCRIPT_RE.lastIndex = 0;

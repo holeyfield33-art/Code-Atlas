@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { scanWorkspace, readSource } from "./scanner/treeScanner.js";
-import { buildGraph } from "./scanner/graph.js";
+import { buildGraph, type SourceFile } from "./scanner/graph.js";
 import { scan, ingestVibeExplainer } from "./scanner/findings.js";
 import { DEFAULT_RULES, validateRules } from "./scanner/rules.js";
 import { redactSecrets } from "./scanner/redact.js";
@@ -57,13 +57,16 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
   for (const f of scanned.files) byLang[f.language].push(f);
   const srcMap = (fs: typeof scanned.files) => new Map(fs.map((f) => [f.relativePath, readSource(f.absolutePath)]));
 
-  const jsSources = byLang.js.map((f) => ({ path: f.relativePath, code: readSource(f.absolutePath) }));
+  const jsSources: SourceFile[] = byLang.js.map((f) => ({ path: f.relativePath, code: readSource(f.absolutePath) }));
   // A .vue SFC routes its <script> block to the Babel backend via a position-
   // preserving shim, so node line/columns map to the real .vue (the inlined
   // source below is the real file). A component with no <script> is skipped.
   for (const f of byLang.vue) {
-    const shim = extractVueScript(readSource(f.absolutePath));
-    if (shim) jsSources.push({ path: f.relativePath, code: shim });
+    const real = readSource(f.absolutePath);
+    const shim = extractVueScript(real);
+    // Parse the shim, but hash the REAL SFC: evidence.path + the inlined source
+    // point at the real .vue, so contentHash must identify the real source.
+    if (shim) jsSources.push({ path: f.relativePath, code: shim, hashCode: real });
   }
   const graphs: AtlasGraph[] = [];
   if (jsSources.length) graphs.push(buildGraph(revision, jsSources));
