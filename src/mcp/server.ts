@@ -41,9 +41,12 @@ export function makeCtx(bundle: AtlasBundle, path: string | null): AtlasCtx {
     tools: new AtlasTools(bundle),
     triage(findingId, status, by, note) {
       const updated = applyDisposition(bundle, findingId, { status: status as any, by, note });
-      bundle = updated;                       // advance the in-memory bundle
-      if (path) writeFileSync(path, JSON.stringify(updated, null, 2));  // persist
-      ctx.tools = new AtlasTools(updated);    // refresh reads
+      // Persist FIRST: if the write throws (read-only bundle, full disk), the
+      // in-memory state must NOT advance, or a later successful triage could
+      // silently commit this failed decision. Commit only after the write.
+      if (path) writeFileSync(path, JSON.stringify(updated, null, 2));
+      bundle = updated;                       // commit the in-memory bundle
+      ctx.tools = new AtlasTools(updated);    // refresh reads from the committed value
       const f = (updated.findings ?? []).find((x) => x.id === findingId)!;
       return { ok: true, persisted: Boolean(path), finding: { id: f.id, title: f.title, grade: f.grade, disposition: f.disposition } };
     },
@@ -96,7 +99,9 @@ export function buildServer(ctx: AtlasCtx): McpServer {
         by: z.string().describe("who made the call — a human handle or agent name"),
         note: z.string().optional().describe("rationale for the decision"),
       },
-      annotations: { readOnlyHint: false, openWorldHint: false, idempotentHint: true },
+      // NOT idempotent: each call stamps a fresh `at` and rewrites the bundle, so
+      // a retry would replace the original decision time. No idempotentHint.
+      annotations: { readOnlyHint: false, openWorldHint: false },
     },
     async ({ findingId, status, by, note }) => {
       try { return ok(ctx.triage(findingId, status, by, note)); }

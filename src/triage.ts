@@ -25,8 +25,12 @@ export function applyDisposition(
   decision: { status: DispositionStatus; by: string; note?: string; at?: string } | null,
 ): AtlasBundle {
   const findings = bundle.findings ?? [];
-  const idx = findings.findIndex((f) => f.id === findingId);
-  if (idx < 0) throw new Error(`Unknown finding id: ${findingId}`);
+  const hits = findings.reduce<number[]>((acc, f, i) => { if (f.id === findingId) acc.push(i); return acc; }, []);
+  if (hits.length === 0) throw new Error(`Unknown finding id: ${findingId}`);
+  // The API addresses a finding solely by id, so a duplicate id is ambiguous:
+  // dispositioning one and leaving the other would be a silent, partial result.
+  if (hits.length > 1) throw new Error(`Ambiguous finding id (appears ${hits.length}x in the bundle): ${findingId}`);
+  const idx = hits[0];
   if (decision && !DISPOSITION_STATUSES.includes(decision.status))
     throw new Error(`Invalid disposition status: ${decision.status}`);
   if (decision && !decision.by.trim()) throw new Error("Disposition requires a non-empty `by` (who made the call)");

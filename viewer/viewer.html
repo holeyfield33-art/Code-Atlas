@@ -682,8 +682,12 @@ function securitySection(n){
       ${dispositionNote(f)}
       ${asiStamp()}</div>`;
   }
+  // A dismissed DIRECT finding shows the gray DISMISSED panel — but only when the
+  // node is not ALSO in the blast radius of a different, still-active weakness. If
+  // it is, the node is coloured yellow, so fall through to POSSIBLY AFFECTED rather
+  // than hiding that live warning behind the dismissed finding.
   const dismissed = state.dismissedByNode && state.dismissedByNode.get(n.id);
-  if(dismissed){
+  if(dismissed && !state.blast.has(n.id)){
     return `<div class="sec"><div class="sec-head"><span class="grade-pill" style="background:var(--grade-gray)">DISMISSED</span><span class="grade-ev">was ${esc(dismissed.grade)}</span></div>
       <p class="sec-title">${esc(dismissed.title)}</p>
       <p class="sec-expl">Triaged as a false positive, so it no longer colours this component or casts a blast radius.</p>

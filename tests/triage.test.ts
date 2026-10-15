@@ -94,4 +94,21 @@ assert.throws(() => ctx.triage("F1", "bogus", "x"), /Invalid disposition/, "inva
 const stillFp = parseBundle(JSON.parse(readFileSync(path, "utf8")));
 assert.strictEqual(stillFp.findings![0].disposition!.status, "false_positive", "rejected triage did not corrupt the file");
 
-console.log("triage.test: disposition records provenance, suppresses (never upgrades), persists via MCP, and threats reflects it");
+// --- duplicate finding ids are ambiguous and rejected ---
+const dupBundle: AtlasBundle = parseBundle({
+  ...JSON.parse(JSON.stringify(base)),
+  findings: [
+    { id: "DUP", nodeRefs: ["fn_a"], kind: "weakness", title: "a", explanation: "x", grade: "STATIC", evidence: [{ source: "t", detail: "d" }], blastRadius: [] },
+    { id: "DUP", nodeRefs: ["fn_b"], kind: "weakness", title: "b", explanation: "x", grade: "STATIC", evidence: [{ source: "t", detail: "d" }], blastRadius: [] },
+  ],
+});
+assert.throws(() => applyDisposition(dupBundle, "DUP", { status: "confirmed", by: "x" }), /Ambiguous finding id/, "duplicate id rejected");
+
+// --- persist-before-advance: a failed write must not advance in-memory state ---
+const ctx2 = makeCtx(base, dir /* a DIRECTORY path -> writeFileSync throws */);
+assert.throws(() => ctx2.triage("F1", "false_positive", "x"), /./, "write to a directory path throws");
+const t = ctx2.tools.threats("fn_a") as any;
+assert.strictEqual(t.findings[0].disposition, null, "failed write did not advance the in-memory disposition");
+assert.strictEqual(t.findings[0].blastRadius.length, 1, "failed write left the blast intact");
+
+console.log("triage.test: provenance + suppress-not-upgrade + MCP persistence; duplicate ids rejected; a failed write does not advance state");
