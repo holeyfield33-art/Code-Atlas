@@ -16,7 +16,15 @@ import type { AtlasGraph, AtlasNode, AtlasEdge, Evidence } from "../schema.js";
 const traverse: any =
   (typeof _traverse === "function" ? _traverse : (_traverse as any).default);
 
-export interface SourceFile { path: string; code: string; }
+export interface SourceFile {
+  path: string;
+  code: string;
+  /** Source to HASH for evidence.contentHash, when it differs from `code`.
+   *  Used when `code` is a parse-only shim (e.g. a .vue <script> extraction)
+   *  but evidence.path + the bundled source refer to the real file — the hash
+   *  must identify the real source, per the Evidence contract. Defaults to `code`. */
+  hashCode?: string;
+}
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const id = (s: string) => sha(s).slice(0, 24);
@@ -56,7 +64,8 @@ export function buildGraph(revision: string, sources: SourceFile[]): AtlasGraph 
   // ---- pass 1: files, functions, contains, imports ----
   for (const f of sources) {
     const fid = fileId(f.path);
-    graph.nodes.push({ id: fid, kind: "file", label: f.path, evidence: ev(f.path, 1, 1, f.code) });
+    const hashSrc = f.hashCode ?? f.code;   // hash the real source, even when `code` is a shim
+    graph.nodes.push({ id: fid, kind: "file", label: f.path, evidence: ev(f.path, 1, 1, hashSrc) });
     const fns = new Map<string, string>();
     const exps = new Map<string, string>();
     const imps = new Map<string, { file: string; name: string }>();
@@ -69,22 +78,22 @@ export function buildGraph(revision: string, sources: SourceFile[]): AtlasGraph 
         if (!p.node.id) return;
         const nid = fnId(f.path, p.node.id.name, p.node.start);
         fns.set(p.node.id.name, nid);
-        graph.nodes.push({ id: nid, kind: "function", label: p.node.id.name, evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, f.code) });
-        graph.edges.push({ id: id(fid + ":contains:" + nid), from: fid, to: nid, kind: "contains", evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, f.code) });
+        graph.nodes.push({ id: nid, kind: "function", label: p.node.id.name, evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, hashSrc) });
+        graph.edges.push({ id: id(fid + ":contains:" + nid), from: fid, to: nid, kind: "contains", evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, hashSrc) });
       },
       VariableDeclarator(p: any) {
         if (p.node.id?.type !== "Identifier") return;
         if (p.node.init?.type !== "ArrowFunctionExpression" && p.node.init?.type !== "FunctionExpression") return;
         const nid = fnId(f.path, p.node.id.name, p.node.start);
         fns.set(p.node.id.name, nid);
-        graph.nodes.push({ id: nid, kind: "function", label: p.node.id.name, evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, f.code) });
-        graph.edges.push({ id: id(fid + ":contains:" + nid), from: fid, to: nid, kind: "contains", evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, f.code) });
+        graph.nodes.push({ id: nid, kind: "function", label: p.node.id.name, evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, hashSrc) });
+        graph.edges.push({ id: id(fid + ":contains:" + nid), from: fid, to: nid, kind: "contains", evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, hashSrc) });
       },
       ImportDeclaration(p: any) {
         const spec = p.node.source.value;
         const target = resolveImport(f.path, spec, known);
         if (!target) { if (spec.startsWith(".")) graph.diagnostics.push({ path: f.path, message: "Unresolved or ambiguous import: " + spec }); return; }
-        graph.edges.push({ id: id(fid + ":imports:" + fileId(target)), from: fid, to: fileId(target), kind: "imports", evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, f.code) });
+        graph.edges.push({ id: id(fid + ":imports:" + fileId(target)), from: fid, to: fileId(target), kind: "imports", evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, hashSrc) });
         for (const s of p.node.specifiers) {
           if (s.type === "ImportDefaultSpecifier") imps.set(s.local.name, { file: target, name: "default" });
           else if (s.type === "ImportSpecifier") imps.set(s.local.name, { file: target, name: s.imported.type === "Identifier" ? s.imported.name : s.imported.value });
@@ -104,6 +113,7 @@ export function buildGraph(revision: string, sources: SourceFile[]): AtlasGraph 
   // ---- pass 2: calls ----
   for (const f of sources) {
     const fns = perFileFns.get(f.path); if (!fns) continue;
+    const hashSrc = f.hashCode ?? f.code;   // hash the real source, even when `code` is a shim
     const imps = importsByFile.get(f.path)!;
     let ast;
     try { ast = parseTs(f.code); } catch { continue; }
@@ -124,7 +134,7 @@ export function buildGraph(revision: string, sources: SourceFile[]): AtlasGraph 
         if (!toId) { const im = imps.get(callee.name); if (im) toId = exportsByFile.get(im.file)?.get(im.name); }
         if (!toId) { graph.diagnostics.push({ path: f.path, message: "Unresolved call: " + callee.name + " at line " + (p.node.loc?.start.line ?? "?") }); return; }
         if (toId === fromId) return;
-        graph.edges.push({ id: id(fromId + ":calls:" + toId + ":" + p.node.start), from: fromId, to: toId, kind: "calls", evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, f.code) });
+        graph.edges.push({ id: id(fromId + ":calls:" + toId + ":" + p.node.start), from: fromId, to: toId, kind: "calls", evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, hashSrc) });
       },
     });
   }
