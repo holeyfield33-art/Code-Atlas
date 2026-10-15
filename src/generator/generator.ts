@@ -24,6 +24,10 @@ export interface GenOptions {
   repoLabel: string;
   defectKinds?: Array<"removed_guard" | "broken_call_edge">;
   maxLessons?: number;
+  /** function node id -> real body source for NON-JS (tree-sitter) functions.
+   *  When present, the generator also emits language-agnostic broken_call_edge
+   *  lessons for those functions — same grounding as the Babel path, no AST. */
+  genericBodies?: Map<string, string>;
 }
 
 const sha256 = (s: string) => "sha256:" + createHash("sha256").update(s).digest("hex");
@@ -91,13 +95,22 @@ function detectRemovedGuard(fn: FnSite, code: string): BreakAndFix | null {
 
 /* ---- defect 2: broken_call_edge ------------------------------------------ *
  * Given a real `calls` edge, find the call to the callee in the caller's source
- * and rename it so the edge disappears. The fix restores the real call. */
-function detectBrokenCallEdge(caller: FnSite, code: string, calleeName: string): BreakAndFix | null {
-  const solution = code.slice(caller.start, caller.end);
+ * and rename it so the edge disappears. The fix restores the real call.
+ *
+ * This defect is LANGUAGE-AGNOSTIC: it needs only the caller's function-body
+ * source and the callee's name — no AST. The Babel path passes a Babel-sliced
+ * body; the tree-sitter path passes a tree-sitter-sliced body (same contract). */
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** A real call site `name(` with a word boundary before the name, so `run(` does
+ *  NOT match inside `prerun(`. Global: a broken variant removes EVERY call site,
+ *  so the `includes` check reliably fails on the broken answer. */
+const callSiteRe = (name: string) => new RegExp("(?<![\\w.$])" + escapeRe(name) + "\\(", "g");
+
+function makeBrokenCallEdge(callerName: string, body: string, calleeName: string): BreakAndFix | null {
+  const solution = body;
   const callPattern = calleeName + "(";
-  if (!solution.includes(callPattern)) return null;
-  const broken = solution.replace(callPattern, calleeName + "__removed(");
-  if (broken === solution) return null;
+  const broken = solution.replace(callSiteRe(calleeName), calleeName + "__removed(");
+  if (broken === solution) return null;                 // no real call site here → not groundable
   const checks: Check[] = [
     { kind: "includes", value: callPattern, message: "Call `" + calleeName + "(...)` — the real function." },
     { kind: "excludes", value: calleeName + "__removed(", message: "Remove the bogus `" + calleeName + "__removed` call." },
@@ -106,10 +119,14 @@ function detectBrokenCallEdge(caller: FnSite, code: string, calleeName: string):
     nodeRef: "",
     file: "",
     defectKind: "broken_call_edge",
-    task: "`" + caller.name + "` is supposed to call `" + calleeName + "`, but the call has been renamed to a function that does not exist. Restore the real call to `" + calleeName + "`.",
+    task: "`" + callerName + "` is supposed to call `" + calleeName + "`, but the call has been renamed to a function that does not exist. Restore the real call to `" + calleeName + "`.",
     broken, solution, checks,
     provenance: { revision: "", contentHash: sha256(solution), derivedFrom: "edge", method: "atlas-graph" },
   } as BreakAndFix;
+}
+
+function detectBrokenCallEdge(caller: FnSite, code: string, calleeName: string): BreakAndFix | null {
+  return makeBrokenCallEdge(caller.name, code.slice(caller.start, caller.end), calleeName);
 }
 
 /** Plain-language teach line, grounded in the node's real neighbours. */
@@ -169,6 +186,38 @@ export function generateCourse(graph: AtlasGraph, sources: SourceFile[], opts: G
       lessons.push({
         id: "l_call_" + edge.id.replace(/[^a-z0-9]/gi, "_"), moduleId: "mod-01",
         title: caller.label + " → " + callee.label, nodeRefs: [caller.id, callee.id],
+        teach: teachFor(caller.id, graph), concepts: ["call graph"], breakAndFix: bf,
+      });
+    }
+  }
+
+  // broken_call_edge for NON-JS functions, from tree-sitter body slices (no AST).
+  // We scan each function body for a call `callee(` to ANOTHER known function in
+  // the graph — a real call site in real source — and mutate it. (We do not rely
+  // on the calls edge's origin, which some tree-sitter backends attribute to the
+  // file rather than the enclosing function.) Same grounding as the Babel path:
+  // solution is the real body, the break renames a real callee, checks fail on
+  // broken / pass on solution.
+  if (wanted.has("broken_call_edge") && opts.genericBodies && opts.genericBodies.size) {
+    const fnById = new Map(funcNodes.map((n) => [n.id, n]));
+    const calleeNames = [...new Set(funcNodes.map((n) => n.label))];
+    for (const [callerId, body] of opts.genericBodies) {
+      if (lessons.length >= max) break;
+      const caller = fnById.get(callerId);
+      if (!caller) continue;
+      // a known function (not the caller itself) that is really called here
+      const calleeName = calleeNames.find((lbl) => lbl !== caller.label && callSiteRe(lbl).test(body));
+      if (!calleeName) continue;
+      const callee = funcNodes.find((n) => n.label === calleeName);
+      const bf = makeBrokenCallEdge(caller.label, body, calleeName);
+      if (!bf) continue;
+      if (redactSecrets(bf.solution).redactions > 0) continue;  // never serialize a lesson built from secret-bearing source
+      bf.nodeRef = caller.id; bf.file = caller.evidence.path; bf.provenance.revision = caller.evidence.revision;
+      const id = "l_callg_" + callerId.replace(/[^a-z0-9]/gi, "_");
+      if (lessons.some((l) => l.id === id)) continue;           // dedup
+      lessons.push({
+        id, moduleId: "mod-01", title: caller.label + " → " + calleeName,
+        nodeRefs: callee ? [caller.id, callee.id] : [caller.id],
         teach: teachFor(caller.id, graph), concepts: ["call graph"], breakAndFix: bf,
       });
     }

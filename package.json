@@ -12,7 +12,7 @@
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/schema.test.ts && tsx tests/generator.test.ts && tsx tests/findings.test.ts && tsx tests/adapter.test.ts && tsx tests/mcp.test.ts && tsx tests/security.test.ts && tsx tests/multilang.test.ts && tsx tests/build.test.ts && tsx tests/threat-rules.test.ts"
+    "test": "tsx tests/schema.test.ts && tsx tests/generator.test.ts && tsx tests/findings.test.ts && tsx tests/adapter.test.ts && tsx tests/mcp.test.ts && tsx tests/security.test.ts && tsx tests/multilang.test.ts && tsx tests/build.test.ts && tsx tests/threat-rules.test.ts && tsx tests/course-multilang.test.ts"
   },
   "engines": {
     "node": ">=20"

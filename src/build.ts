@@ -79,10 +79,13 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
 
   const graph = mergeGraphs(revision, graphs);
 
-  // Course runs over the JS/TS slice (Babel-grounded). Native findings run over
-  // the JS/TS slice AND each non-JS slice via its language rule pack — all STATIC
-  // leads, grade-gated blast radius, same grounding.
-  const course = generateCourse(graph, jsSources, { product, repoLabel: label });
+  // Course: Babel-grounded lessons over the JS/TS slice PLUS language-agnostic
+  // broken_call_edge lessons over the non-JS function bodies (same grounding).
+  const genericBodies = new Map<string, string>();
+  for (const { functionSources } of langFnSources) for (const [id, body] of functionSources) genericBodies.set(id, body);
+  const course = generateCourse(graph, jsSources, { product, repoLabel: label, genericBodies });
+  // Native findings run over the JS/TS slice AND each non-JS slice via its
+  // language rule pack — all STATIC leads, grade-gated blast radius, same grounding.
   let security: { findings?: any[]; asiSnapshot?: any } | undefined;
   let unmappedReport = 0;
   if (opts.security !== false) {
