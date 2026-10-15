@@ -2,18 +2,14 @@
 /**
  * code-atlas CLI.
  *   build [path]   scan a repo -> atlas.bundle.json + a self-contained viewer.html
- * Local, no server. The language backend (Babel) is swappable behind the graph.
+ * Local, no server. Two graph backends sit behind one AtlasGraph seam: Babel for
+ * JS/TS, tree-sitter for Python/Ruby. Pipeline lives in build.ts; this adds IO.
  */
 import { Command } from "commander";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { scanWorkspace, readSource } from "./scanner/treeScanner.js";
-import { buildGraph } from "./scanner/graph.js";
-import { scan, ingestVibeExplainer } from "./scanner/findings.js";
-import { DEFAULT_RULES, validateRules } from "./scanner/rules.js";
-import { redactSecrets } from "./scanner/redact.js";
-import { generateCourse, assembleBundle } from "./generator/generator.js";
+import { buildAtlas } from "./build.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const viewerPath = resolve(here, "../viewer/viewer.html");
@@ -34,42 +30,9 @@ program
   .option("--rules <file>", "custom rule pack (JSON) for the findings scanner")
   .option("--findings-report <file>", "a vibe-explainer --json report to map onto the graph")
   .option("--no-security", "skip the findings scanner")
-  .action((path: string, opts: { out: string; product: string; rules?: string; findingsReport?: string; security: boolean }) => {
-    const root = resolve(path);
-    const label = basename(root);
-    const revision = label + "@" + new Date().toISOString().slice(0, 10);
-
-    const scanned = scanWorkspace(root);
-    const sources = scanned.files.map((f) => ({ path: f.relativePath, code: readSource(f.absolutePath) }));
-    if (!sources.length) { console.error("No JS/TS files found under " + root); process.exit(1); }
-
-    const graph = buildGraph(revision, sources);
-    const course = generateCourse(graph, sources, { product: opts.product, repoLabel: label });
-    let security: { findings?: any[]; asiSnapshot?: any } | undefined;
-    if (opts.security !== false) {
-      const rules = opts.rules ? validateRules(JSON.parse(readFileSync(opts.rules, "utf8"))) : DEFAULT_RULES;
-      security = scan(graph, sources, rules);
-      if (opts.findingsReport) {
-        const ve = ingestVibeExplainer(JSON.parse(readFileSync(opts.findingsReport, "utf8")), graph);
-        security = {
-          findings: [...(security.findings ?? []), ...ve.findings],
-          asiSnapshot: ve.asiSnapshot ?? security.asiSnapshot,
-        };
-        if (ve.unmapped.length) console.log(`  (${ve.unmapped.length} report scenarios did not map to a graph file)`);
-      }
-    }
-    // Inline source so the local viewer can show code offline (per-file cap keeps the bundle sane).
-    // Redact secret-like values first: this inlined copy travels in the shareable artifact,
-    // so it must never carry a live credential. The graph/course above used the REAL source.
-    const MAX_SRC = 40_000;
-    let redactionCount = 0;
-    const inlined = sources.map((s) => {
-      const capped = s.code.length > MAX_SRC ? s.code.slice(0, MAX_SRC) + "\n/* … truncated … */" : s.code;
-      const { code, redactions } = redactSecrets(capped);
-      redactionCount += redactions;
-      return { path: s.path, code };
-    });
-    const bundle = assembleBundle(graph, course, { product: opts.product, repoLabel: label }, security, inlined);
+  .action(async (path: string, opts: { out: string; product: string; rules?: string; findingsReport?: string; security: boolean }) => {
+    const { bundle, langSummary, redactionCount, findingsCount, unmappedReport } =
+      await buildAtlas(path, { product: opts.product, rules: opts.rules, findingsReport: opts.findingsReport, security: opts.security });
 
     mkdirSync(opts.out, { recursive: true });
     writeFileSync(join(opts.out, "atlas.bundle.json"), JSON.stringify(bundle, null, 2));
@@ -77,29 +40,26 @@ program
     let viewer: string;
     try { viewer = readFileSync(viewerPath, "utf8"); }
     catch { console.error("Viewer template not found at " + viewerPath); process.exit(1); }
-    // Bundle the 3D renderer INTO the viewer (no CDN, offline, no external script
-    // execution). Escape any "</script" in the lib so it can't close the block;
-    // the function replacer keeps "$" sequences literal.
     let renderer: string;
     try { renderer = readFileSync(rendererPath, "utf8"); }
     catch { console.error("Vendored renderer not found at " + rendererPath); process.exit(1); }
+    // Bundle the renderer in (no CDN) and inject the bundle as inert JSON (escape
+    // "</script" and use function replacers so source can't break out or be mangled).
     renderer = renderer.replace(/<\/script/gi, "<\\/script");
     viewer = viewer.replace("/*__ATLAS_RENDERER__*/", () => renderer);
-    // Inject the bundle as inert data inside a <script type="application/json"> block,
-    // read with JSON.parse — NOT as a JS literal. Escaping "<" as < guarantees the
-    // serialized source can never contain "</script" and break out of the block (F1), and
-    // a function replacer means "$" sequences in source are inserted literally (F2).
     const bundleJson = JSON.stringify(bundle).replace(/</g, "\\u003c");
     viewer = viewer.replace("/*__ATLAS_BUNDLE_JSON__*/", () => bundleJson);
     writeFileSync(join(opts.out, "viewer.html"), viewer);
 
-    const fns = graph.nodes.filter((n) => n.kind === "function").length;
-    const nf = security?.findings?.length ?? 0;
+    const g = bundle.graph;
+    const fns = g.nodes.filter((n) => n.kind === "function").length;
+    if (unmappedReport) console.log(`  (${unmappedReport} report scenarios did not map to a graph file)`);
     console.log(`Wrote ${join(opts.out, "atlas.bundle.json")} and ${join(opts.out, "viewer.html")}`);
-    console.log(`  ${graph.nodes.length} nodes (${fns} functions), ${graph.edges.length} edges, ` +
-      `${course.lessons.length} lessons, ${nf} findings, ${graph.diagnostics.length} diagnostics`);
+    console.log(`  files: ${langSummary}`);
+    console.log(`  ${g.nodes.length} nodes (${fns} functions), ${g.edges.length} edges, ` +
+      `${bundle.course?.lessons.length ?? 0} lessons, ${findingsCount} findings, ${g.diagnostics.length} diagnostics`);
     if (redactionCount) console.log(`  redacted ${redactionCount} secret-like value(s) from inlined source`);
     console.log(`  Open ${join(opts.out, "viewer.html")} in a browser.`);
   });
 
-program.parse();
+program.parseAsync().catch((e) => { console.error(String(e?.stack || e)); process.exit(1); });
