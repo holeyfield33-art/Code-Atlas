@@ -38,14 +38,19 @@ const sha256 = (s: string) => "sha256:" + createHash("sha256").update(s).digest(
 const ATLAS_KINDS = new Set<AtlasNode["kind"]>(["file", "function", "class", "constant", "module"]);
 const EDGE_KINDS = new Set<AtlasEdge["kind"]>(["contains", "imports", "calls"]);
 
-/** 1-based line/column from a character offset — matches the Babel backend
- *  (loc.start.line is 1-based; it stores column as loc.start.column + 1), which
- *  is what the viewer and MCP source slicing expect. */
-function lineCol(source: string, offset: number): { line: number; column: number } {
-  const n = Math.min(Math.max(offset, 0), source.length);
+/** 1-based line/column from a tree-sitter BYTE offset. tree-sitter indexes by
+ *  UTF-8 byte; for ASCII (byte == char) we slice directly, and for any non-ASCII
+ *  source we decode the byte prefix so positions are exact in characters — which
+ *  is what the Babel backend emits (1-based line, column+1) and what the viewer /
+ *  MCP source slicing expect. */
+export function lineCol(source: string, byteOffset: number, ascii: boolean): { line: number; column: number } {
+  const off = Math.max(byteOffset, 0);
+  const text = ascii
+    ? source.slice(0, Math.min(off, source.length))
+    : Buffer.from(source, "utf8").subarray(0, off).toString("utf8");
   let line = 0, lastNewline = -1;
-  for (let i = 0; i < n; i++) if (source.charCodeAt(i) === 10) { line++; lastNewline = i; }
-  return { line: line + 1, column: n - lastNewline };
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) { line++; lastNewline = i; }
+  return { line: line + 1, column: text.length - lastNewline };
 }
 
 export function languageOf(path: string): MultiLang | null {
@@ -66,10 +71,16 @@ export async function buildMultiLangGraph(
 ): Promise<AtlasGraph> {
   const g = await mapper.buildGraph(lang, fileContents, projectRoot);
   const srcOf = (p?: string) => (p ? fileContents.get(p) ?? "" : "");
+  const asciiOf = new Map<string, boolean>();           // per-file: is the source pure ASCII?
+  const isAscii = (p: string, s: string) => {
+    let a = asciiOf.get(p);
+    if (a === undefined) { a = s.length === Buffer.byteLength(s, "utf8"); asciiOf.set(p, a); }
+    return a;
+  };
 
   const nodes: AtlasNode[] = g.nodes.map((n) => {
     const src = srcOf(n.file);
-    const { line, column } = lineCol(src, n.range?.start ?? 0);
+    const { line, column } = lineCol(src, n.range?.start ?? 0, isAscii(n.file ?? "", src));
     const kind = ATLAS_KINDS.has(n.kind as AtlasNode["kind"]) ? (n.kind as AtlasNode["kind"]) : "function";
     return {
       id: n.id,
