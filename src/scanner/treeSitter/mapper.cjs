@@ -63,6 +63,7 @@ function extractFromTree(tree, source, filePath, lang, query) {
   const definitions = new Map(); // name → [{id, kind, range}]
   const references = []; // {name, kind, range, fromId?}
   const localNodes = [];
+  const defSpans = []; // {start,end,id} full extents, for enclosing-definition lookup
 
   // File node always present
   localNodes.push({
@@ -115,16 +116,31 @@ function extractFromTree(tree, source, filePath, lang, query) {
         name,
         file: filePath,
         range,
+        // Full definition extent (the whole def/class/method body), distinct from
+        // `range` which is just the name. Used to slice the real source of a
+        // function for the native rule engine (non-JS backends can't use Babel).
+        bodyRange: { start: defOrRef.startIndex, end: defOrRef.endIndex },
         meta: { language: lang, originalKind: kind },
       };
       localNodes.push(node);
       if (!definitions.has(name)) definitions.set(name, []);
       definitions.get(name).push({ id: nodeId, kind: node.kind, range, file: filePath });
+      // record the FULL extent of SCOPE-BEARING definitions so calls inside them
+      // attribute to the enclosing scope. A constant (an assignment like
+      // `X = helper()`) is NOT a scope — including it would make a top-level call
+      // attribute to the constant instead of the file. Scopes only.
+      if (kind === 'function' || kind === 'method' || kind === 'class' || kind === 'module')
+        defSpans.push({ start: defOrRef.startIndex, end: defOrRef.endIndex, id: nodeId });
       // contains edge: file → definition
       // (emitted later)
     } else if (role === 'reference') {
       references.push({
         name,
+        // Fully-qualified callee token (e.g. `os.system`, `Marshal.load`), derived
+        // from the real call node — distinct from the bare captured `name`. Lets
+        // the native rule engine match qualified sinks precisely. Comes from a
+        // parsed call, so paren-less calls are included and comments/strings are not.
+        qualified: qualifiedCallee(defOrRef, name, lang),
         kind, // call, class, ...
         range,
         file: filePath,
@@ -133,7 +149,42 @@ function extractFromTree(tree, source, filePath, lang, query) {
     }
   }
 
-  return { localNodes, definitions, references, fileId };
+  return { localNodes, definitions, references, fileId, defSpans };
+}
+
+/** The innermost definition whose full extent contains byte position `pos`,
+ *  or null if the position is at module top level. */
+function enclosingDefId(defSpans, pos) {
+  let best = null;
+  for (const d of defSpans) {
+    if (d.start <= pos && pos < d.end && (!best || (d.end - d.start) < (best.end - best.start))) best = d;
+  }
+  return best ? best.id : null;
+}
+
+/** Reconstruct the qualified callee token from a call node (or a bare
+ *  identifier/constant used as a command call). Falls back to the bare name. */
+function qualifiedCallee(callNode, bareName, lang) {
+  try {
+    if (!callNode) return bareName;
+    if (lang === 'python') {
+      if (callNode.type === 'call') {
+        const fn = callNode.childForFieldName('function');
+        if (fn && fn.text) return fn.text;        // `os.system`, `yaml.load`, `eval`
+      }
+      return bareName;
+    }
+    if (lang === 'ruby') {
+      if (callNode.type === 'call') {
+        const recv = callNode.childForFieldName('receiver');
+        const m = callNode.childForFieldName('method');
+        const method = (m && m.text) ? m.text : bareName;
+        return recv && recv.text ? recv.text + '.' + method : method; // `Marshal.load`, `system`
+      }
+      return bareName;                            // bare identifier/constant command call
+    }
+  } catch { /* fall through */ }
+  return bareName;
 }
 
 /**
@@ -317,16 +368,23 @@ async function buildGraph(lang, fileContents /* Map<path, source> */, projectRoo
     }
   }
 
-  // Pass 3: call resolution (name-based, same as many tag-based systems)
-  for (const [filePath, { references, fileId }] of perFile) {
+  // Pass 3: call resolution (name-based, same as many tag-based systems).
+  // The edge originates at the ENCLOSING definition (function/method/class) that
+  // contains the call site, falling back to the file node for top-level calls.
+  for (const [filePath, { references, fileId, defSpans }] of perFile) {
+    const seen = new Set();
     for (const ref of references) {
       if (ref.kind !== 'call') continue;
       const candidates = allDefinitions.get(ref.name) || [];
       if (candidates.length === 1) {
+        const srcId = enclosingDefId(defSpans, ref.range.start) || fileId;
+        const id = `calls:${srcId}->${candidates[0].id}`;
+        if (seen.has(id)) continue;                 // one call edge per caller→callee pair
+        seen.add(id);
         edges.push({
-          id: `calls:${fileId}->${candidates[0].id}`,
+          id,
           kind: 'calls',
-          source: fileId, // or enclosing scope if refined
+          source: srcId,
           target: candidates[0].id,
           meta: { name: ref.name },
         });
@@ -345,7 +403,27 @@ async function buildGraph(lang, fileContents /* Map<path, source> */, projectRoo
     }
   }
 
-  return { nodes, edges, diagnostics };
+  // Pass 4: attribute each call's qualified token to the INNERMOST enclosing
+  // definition (by bodyRange), for the native rule engine. Grounded: tokens come
+  // from real parsed call nodes, so comments/strings never appear and paren-less
+  // calls do. Keyed by node id.
+  const callTokens = {};
+  for (const [, { references, localNodes }] of perFile) {
+    const defs = localNodes.filter((n) => n.bodyRange); // function/class/method defs
+    for (const ref of references) {
+      if (ref.kind !== 'call') continue;
+      let best = null;
+      for (const d of defs) {
+        if (ref.range.start >= d.bodyRange.start && ref.range.end <= d.bodyRange.end) {
+          if (!best || (d.bodyRange.end - d.bodyRange.start) < (best.bodyRange.end - best.bodyRange.start)) best = d;
+        }
+      }
+      if (!best) continue; // top-level call; not inside a function
+      (callTokens[best.id] ||= []).push(ref.qualified || ref.name);
+    }
+  }
+
+  return { nodes, edges, diagnostics, callTokens };
 }
 
 /**
