@@ -3,9 +3,23 @@
  *  and the bundle validates. Runs on a small real fixture + the adapter. */
 import assert from "node:assert";
 import { buildGraph, type SourceFile } from "../src/scanner/graph.js";
-import { scan, ingestReport, type ExternalFinding } from "../src/scanner/findings.js";
+import { scan, ingestReport, ingestVibeExplainer, type ExternalFinding } from "../src/scanner/findings.js";
 import { assembleBundle } from "../src/generator/generator.js";
 import { parseBundle } from "../src/schema.js";
+
+// Regression (PR #4 / Codex): a vibe-explainer report referencing a NESTED path
+// must map to a tree-sitter file node, whose label is only the basename while the
+// repo-relative path lives in evidence.path.
+{
+  const ev = (p: string) => ({ path: p, line: 1, column: 1, revision: "r", contentHash: "sha256:x", method: "tree-sitter-static" as const, status: "static" as const });
+  const tsGraph: any = { version: "ts-0.1", revision: "r",
+    nodes: [{ id: "file:pkg/app.py", kind: "file", label: "app.py", evidence: ev("pkg/app.py") }], edges: [], diagnostics: [] };
+  const ve = { ai_inventory: { categories: { x: [{ id: "F", file: "pkg/app.py" }] } },
+    risks: { scenarios: [{ risk_id: "R1", title: "t", category: "x", evidence_strength: "HIGH", related_finding_ids: ["F"], rationale: "r" }] } };
+  const res = ingestVibeExplainer(ve, tsGraph);
+  assert.strictEqual(res.findings.length, 1, "nested report path maps to a tree-sitter file node via evidence.path");
+  assert.strictEqual(res.unmapped.length, 0, "nothing unmapped for the nested path");
+}
 
 // A fixture with: a sink-without-validator (weakness), a validator (control),
 // and a caller of the sink (for blast radius).
