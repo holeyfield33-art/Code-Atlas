@@ -8,6 +8,7 @@
  */
 import { createHash } from "node:crypto";
 import type { AtlasBundle, AtlasNode } from "../schema.js";
+import { castsBlastAfterTriage } from "../triage.js";
 
 const sha = (s: string) => "sha256:" + createHash("sha256").update(s).digest("hex").slice(0, 16);
 
@@ -47,6 +48,7 @@ export class AtlasTools {
       counts: { files: files.length, functions: fns.length, edges: g.edges.length, diagnostics: g.diagnostics.length, lessons: this.bundle.course?.lessons.length ?? 0, findings: findings.length },
       findingsByKind: tally(findings.map((f) => f.kind)),
       findingsByGrade: tally(findings.map((f) => f.grade)),
+      findingsByDisposition: tally(findings.map((f) => f.disposition?.status ?? "untriaged")),
       entryPoints,
       note: "Every edge is source-backed; unresolved relationships are diagnostics, never fabricated. Use atlas_get_source to read code only when needed.",
     };
@@ -108,9 +110,13 @@ export class AtlasTools {
     const found: any[] = [];
     for (const id of ids) for (const f of (this.findingsByNode.get(id) ?? [])) found.push({
       id: f.id, kind: f.kind, grade: f.grade, title: f.title, explanation: f.explanation,
-      node: this.brief(id), blastRadius: (f.blastRadius ?? []).map((x: string) => this.label(x)), asiRef: f.asiRef ?? null,
+      node: this.brief(id),
+      // blast radius reflects triage: a dismissed/accepted finding propagates nothing.
+      blastRadius: (castsBlastAfterTriage(f) ? f.blastRadius ?? [] : []).map((x: string) => this.label(x)),
+      asiRef: f.asiRef ?? null,
+      disposition: f.disposition ?? null,
     });
-    return { ref, findings: found, note: "Grade reflects how this was verified; a dependency link alone does not establish exploitability." };
+    return { ref, findings: found, note: "Grade reflects how this was verified; a dependency link alone does not establish exploitability. A disposition is a human/agent triage decision and never upgrades the grade." };
   }
 
   course(id: string) {
