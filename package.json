@@ -8,11 +8,11 @@
     "code-atlas-mcp": "./dist/mcp/server.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-ts-assets.mjs",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/schema.test.ts && tsx tests/generator.test.ts && tsx tests/findings.test.ts && tsx tests/adapter.test.ts && tsx tests/mcp.test.ts && tsx tests/security.test.ts"
+    "test": "tsx tests/schema.test.ts && tsx tests/generator.test.ts && tsx tests/findings.test.ts && tsx tests/adapter.test.ts && tsx tests/mcp.test.ts && tsx tests/security.test.ts && tsx tests/multilang.test.ts"
   },
   "engines": {
     "node": ">=20"
@@ -21,9 +21,10 @@
   "dependencies": {
     "@babel/parser": "^7.26.0",
     "@babel/traverse": "^7.25.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "commander": "^12.1.0",
-    "zod": "^3.23.8",
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "web-tree-sitter": "^0.27.1",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/babel__traverse": "^7.20.6",
