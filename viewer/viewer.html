@@ -141,6 +141,7 @@
   .sec-title{font-size:14px;font-weight:600;margin:0 0 6px}
   .sec-expl{font-size:13px;line-height:1.55;color:var(--fg-dim);margin:0 0 10px}
   .sec-note{font-size:11.5px;line-height:1.5;color:var(--fg-faint);margin:10px 0 0}
+  .sec-note.disp{border-left:2px solid var(--accent);padding-left:9px;color:var(--fg-dim)}
   .asi{background:var(--panel-2);border:1px solid var(--edge);border-radius:9px;padding:10px 12px;margin:10px 0 0}
   .asi-id{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint)}
   .asi-a{font-size:13px;font-weight:500;color:var(--accent);text-decoration:none;margin-left:4px}
@@ -409,13 +410,20 @@ function gradeOf(nodeId){
   if(state.blast.has(nodeId)) return "yellow";
   return "gray";
 }
+const DISMISSED = f => f.disposition && f.disposition.status==="false_positive";
+const ACCEPTED  = f => f.disposition && f.disposition.status==="accepted_risk";
 function buildFindings(findings){
-  state.findingByNode=new Map(); state.blast=new Set();
+  state.findingByNode=new Map(); state.blast=new Set(); state.dismissedByNode=new Map();
   state.hasFindings = Array.isArray(findings) && findings.length>0;
   for(const f of (findings||[])){
+    if(DISMISSED(f)){ // a false positive no longer colours its node; keep it for the panel
+      for(const ref of f.nodeRefs) if(!state.dismissedByNode.has(ref)) state.dismissedByNode.set(ref,f);
+      continue;
+    }
     for(const ref of f.nodeRefs) if(!state.findingByNode.has(ref)) state.findingByNode.set(ref,f);
-    // Only a VERIFIED weakness casts a blast radius; a static lead propagates nothing.
-    if(f.kind==="weakness" && VERIFIED(f.grade)) (f.blastRadius||[]).forEach(id=>state.blast.add(id));
+    // Only a VERIFIED weakness that was not accepted casts a blast radius; a static
+    // lead — or a triaged-away finding — propagates nothing.
+    if(f.kind==="weakness" && VERIFIED(f.grade) && !ACCEPTED(f)) (f.blastRadius||[]).forEach(id=>state.blast.add(id));
   }
 }
 function asiClass(id){ return (state.asi&&state.asi.classes||[]).find(c=>c.id===id); }
@@ -640,6 +648,14 @@ function asiLink(ref){
     : `<span class="asi-a">${esc(ref.label)}</span>`;
   return `<div class="asi"><span class="asi-id">${esc(ref.id)}</span> ${link}${mit}</div>`;
 }
+const DISP_LABEL = { confirmed:"Confirmed", false_positive:"False positive", accepted_risk:"Accepted risk" };
+function dispositionNote(f){
+  const d = f && f.disposition; if(!d) return "";
+  const when = (d.at||"").slice(0,10);
+  const who = esc(d.by||"?");
+  const note = d.note ? ` — ${esc(d.note)}` : "";
+  return `<p class="sec-note disp"><b>Triaged: ${esc(DISP_LABEL[d.status]||d.status)}</b> by ${who}${when?` on ${esc(when)}`:""}${note}. A triage decision is a human/agent call; it does not change how the finding was verified.</p>`;
+}
 function securitySection(n){
   if(!state.hasFindings){
     return `<div class="note security"><b>Unassessed.</b> No validated security findings are attached to this graph, so every component is grey. A dependency link alone does not establish that a weakness here can reach anything else.</div>`;
@@ -647,10 +663,10 @@ function securitySection(n){
   const f = state.findingByNode.get(n.id);
   const g = gradeOf(n.id);
   if(f){
-    // Only a VERIFIED weakness shows a "may affect" list — never trust a raw radius on
-    // a static/inferred lead (a loaded third-party bundle may carry one), or the panel
-    // would contradict its own "casts no blast radius" note.
-    const affected = (f.kind==="weakness" && VERIFIED(f.grade) && f.blastRadius && f.blastRadius.length)
+    // Only a VERIFIED weakness that was not accepted shows a "may affect" list — never
+    // trust a raw radius on a static/inferred lead (a loaded third-party bundle may
+    // carry one), or the panel would contradict its own "casts no blast radius" note.
+    const affected = (f.kind==="weakness" && VERIFIED(f.grade) && !ACCEPTED(f) && f.blastRadius && f.blastRadius.length)
       ? `<div class="conn-row"><span class="lab">may affect</span><span class="vals">${f.blastRadius.map(id=>`<b data-goto="${id}">${esc(labelFor(id))}</b>`).join(", ")}</span></div>` : "";
     return `<div class="sec">
       <div class="sec-head"><span class="grade-pill" style="background:var(${GRADECSS[g]})">${GRADE_LABEL[g]}</span><span class="grade-ev">${esc(f.grade)}</span></div>
@@ -661,9 +677,17 @@ function securitySection(n){
       ${f.kind==="weakness"
         ? (g==="lead"
             ? `<p class="sec-note">Unverified static lead — a pattern match, <b>not</b> a confirmed weakness, and it casts no blast radius. Verify it (reproduce at runtime) before acting; only OBSERVED/TESTED findings mark components as possibly-affected.</p>`
-            : `<p class="sec-note">Verified weakness. ${f.blastRadius&&f.blastRadius.length?"The affected components are shown as possibly-affected, not proven paths.":""}</p>`)
+            : `<p class="sec-note">Verified weakness. ${(f.blastRadius&&f.blastRadius.length&&!ACCEPTED(f))?"The affected components are shown as possibly-affected, not proven paths.":""}</p>`)
         : `<p class="sec-note">Hardened does not mean universally safe — only that this control was evaluated against the stated threat.</p>`}
+      ${dispositionNote(f)}
       ${asiStamp()}</div>`;
+  }
+  const dismissed = state.dismissedByNode && state.dismissedByNode.get(n.id);
+  if(dismissed){
+    return `<div class="sec"><div class="sec-head"><span class="grade-pill" style="background:var(--grade-gray)">DISMISSED</span><span class="grade-ev">was ${esc(dismissed.grade)}</span></div>
+      <p class="sec-title">${esc(dismissed.title)}</p>
+      <p class="sec-expl">Triaged as a false positive, so it no longer colours this component or casts a blast radius.</p>
+      ${dispositionNote(dismissed)}${asiStamp()}</div>`;
   }
   if(state.blast.has(n.id)){
     return `<div class="sec"><div class="sec-head"><span class="grade-pill" style="background:var(--grade-yellow)">POSSIBLY AFFECTED</span></div>

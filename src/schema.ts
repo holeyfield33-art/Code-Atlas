@@ -182,6 +182,19 @@ export const AsiRefSchema = z.object({
  *  control ⇒ green); `grade` is evidence strength. Color = f(kind, grade).
  *  The grade comes ONLY from how this was verified on THIS repo — never from
  *  ASI saying the class exists. ASI explains; it cannot colour a node. */
+/** A human/agent triage decision recorded ON a finding. The scanner proposes a
+ *  lead; a person or agent dispositions it; the map then reflects that decision.
+ *  Carries provenance (who + when + why) so triage is auditable, not anonymous.
+ *  Disposition NEVER upgrades a finding's grade or fabricates a blast radius — it
+ *  can only suppress: `false_positive` removes the finding's colour + blast,
+ *  `accepted_risk` keeps the finding visible but stops it propagating a blast. */
+export const DispositionSchema = z.object({
+  status: z.enum(["confirmed", "false_positive", "accepted_risk"]),
+  by: z.string(),              // actor id (human handle or agent name)
+  at: z.string(),              // ISO timestamp
+  note: z.string().optional(), // rationale
+});
+
 export const FindingSchema = z.object({
   id: z.string(),
   nodeRefs: z.array(z.string()),
@@ -192,6 +205,7 @@ export const FindingSchema = z.object({
   evidence: z.array(z.object({ source: z.string(), detail: z.string() })),
   blastRadius: z.array(z.string()).default([]),
   asiRef: AsiRefSchema.optional(),
+  disposition: DispositionSchema.optional(),  // triage layer (absent => untriaged lead)
 });
 
 /** Pinned snapshot of the ASI attack classes the findings reference. Stamped
@@ -240,6 +254,7 @@ export type CourseModule = z.infer<typeof CourseModuleSchema>;
 export type Course = z.infer<typeof CourseSchema>;
 export type NodeBlurb = z.infer<typeof NodeBlurbSchema>;
 export type AsiRef = z.infer<typeof AsiRefSchema>;
+export type Disposition = z.infer<typeof DispositionSchema>;
 export type Finding = z.infer<typeof FindingSchema>;
 export type AsiSnapshot = z.infer<typeof AsiSnapshotSchema>;
 export type AtlasBundle = z.infer<typeof AtlasBundleSchema>;
