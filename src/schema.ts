@@ -29,14 +29,16 @@ export const EvidenceSchema = z.object({
   column: z.number().int().nonnegative(),
   revision: z.string(),
   contentHash: z.string(),                 // sha256 of the source the element came from
-  method: z.literal("babel-static"),       // tree-sitter backends add their own literal later
+  method: z.enum(["babel-static", "tree-sitter-static"]), // which backend produced this element
   status: z.literal("static"),
 });
 
 export const AtlasNodeSchema = z.object({
   id: z.string(),                          // hash-derived, unique within a bundle
   stableKey: z.string().optional(),        // RESERVED: offset-independent id (e.g. "file:path#scope/name")
-  kind: z.enum(["file", "function"]),      // "package" reserved for monorepos (D-5)
+  // file/function from the Babel backend; class/constant/module from tree-sitter
+  // backends (methods are normalized to function). "package" reserved for monorepos (D-5).
+  kind: z.enum(["file", "function", "class", "constant", "module"]),
   label: z.string(),
   evidence: EvidenceSchema,
 });
