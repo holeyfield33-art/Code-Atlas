@@ -127,7 +127,13 @@ export interface ExternalFinding {
  * scenarios -> weaknesses, present controls -> hardened controls. Nodes are
  * matched by file path; blast radius comes from our call graph. */
 function fileNode(graph: AtlasGraph, file: string) {
-  return graph.nodes.find((n) => n.kind === "file" && (n.label === file || n.label.endsWith("/" + file)));
+  // Match on evidence.path (the reliable repo-relative path) as well as label.
+  // Babel file nodes label by path, but tree-sitter file nodes label by basename
+  // and keep the full path only in evidence.path — matching both maps a report's
+  // nested path (pkg/app.py) to the right node regardless of backend.
+  return graph.nodes.find((n) => n.kind === "file" &&
+    (n.label === file || n.label.endsWith("/" + file) ||
+     n.evidence.path === file || n.evidence.path.endsWith("/" + file)));
 }
 function veGrade(strength: string | undefined): "STATIC" | "INFERRED" {
   return (strength || "").toUpperCase() === "HIGH" ? "STATIC" : "INFERRED";
