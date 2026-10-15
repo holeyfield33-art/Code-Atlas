@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { scanWorkspace, readSource } from "./scanner/treeScanner.js";
-import { buildGraph } from "./scanner/graph.js";
+import { buildGraph, type SourceFile } from "./scanner/graph.js";
 import { scan, scanGeneric, ingestVibeExplainer } from "./scanner/findings.js";
 import { DEFAULT_RULES, LANGUAGE_RULES, validateRules } from "./scanner/rules.js";
 import { redactSecrets } from "./scanner/redact.js";
@@ -95,10 +95,17 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
 
   const graph = mergeGraphs(revision, graphs);
 
-  // Course runs over the JS/TS slice (Babel-grounded). Native findings run over
-  // the JS/TS slice AND each non-JS slice via its language rule pack — all STATIC
-  // leads, grade-gated blast radius, same grounding.
-  const course = generateCourse(graph, jsSources, { product, repoLabel: label });
+  // Course: Babel-grounded lessons over the JS/TS slice PLUS language-agnostic
+  // broken_call_edge lessons over the non-JS function bodies (same grounding).
+  const genericBodies = new Map<string, string>();
+  const genericCalls = new Map<string, string[]>();
+  for (const { functionSources, functionCalls } of langFnSources) {
+    for (const [id, body] of functionSources) genericBodies.set(id, body);
+    for (const [id, calls] of functionCalls) genericCalls.set(id, calls);
+  }
+  const course = generateCourse(graph, jsSources, { product, repoLabel: label, genericBodies, genericCalls });
+  // Native findings run over the JS/TS slice AND each non-JS slice via its
+  // language rule pack — all STATIC leads, grade-gated blast radius, same grounding.
   let security: { findings?: any[]; asiSnapshot?: any } | undefined;
   let unmappedReport = 0;
   if (opts.security !== false) {
