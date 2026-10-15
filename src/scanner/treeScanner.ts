@@ -12,15 +12,18 @@ const IGNORE_DIRS = new Set([
 const JS_TS = /\.(?:[cm]?jsx?|tsx?|mts|cts)$/;
 const PYTHON = /\.pyi?$/;
 const RUBY = /\.(?:rb|rake)$/;
+const VUE = /\.vue$/;
 
-/** Which analyzer backend a file routes to. */
-export type FileLanguage = "js" | "python" | "ruby";
+/** Which analyzer backend a file routes to. A .vue SFC has its <script> block
+ *  extracted and analyzed with the JS/TS (Babel) backend. */
+export type FileLanguage = "js" | "python" | "ruby" | "vue";
 
 /** Detect the backend for a filename, or null if unsupported. */
 export function fileLanguage(name: string): FileLanguage | null {
   if (JS_TS.test(name)) return "js";
   if (PYTHON.test(name)) return "python";
   if (RUBY.test(name)) return "ruby";
+  if (VUE.test(name)) return "vue";
   return null;
 }
 
