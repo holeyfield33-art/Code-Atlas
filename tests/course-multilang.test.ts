@@ -23,12 +23,17 @@ mkdirSync(join(root, "pkg"), { recursive: true });
 // main() calls run() (a real, known function). It also calls prerun() — an
 // EXTERNAL function (not defined in the repo), present so we can prove the
 // word-boundary: breaking `run(` must not touch `run` inside `prerun(`.
+// noop() only MENTIONS run( in a string — not a real call — so it must get no lesson.
 writeFileSync(join(root, "pkg", "app.py"),
   "from helper import run\n" +
   "\n" +
   "def main(x):\n" +
   "    prerun(x)\n" +
-  "    return run(x)\n"
+  "    return run(x)\n" +
+  "\n" +
+  "def noop():\n" +
+  "    print(\"remember to run( the thing\")\n" +
+  "    return 0\n"
 );
 writeFileSync(join(root, "pkg", "helper.py"), "def run(y):\n    return y + 1\n");
 
@@ -59,4 +64,15 @@ assert.ok(bf.broken.includes("prerun(x)"), "the decoy prerun( call was NOT mutat
 assert.strictEqual(runChecks(bf.solution, bf.checks).length, 0, "all checks pass on the real solution");
 assert.ok(runChecks(bf.broken, bf.checks).length > 0, "at least one check fails on the broken variant");
 
-console.log(`course-multilang.test: grounded broken_call_edge lesson for Python main()->run() — checks pass/fail correctly, prerun( untouched`);
+// grading is call-site-boundary aware: a learner who DELETES the bogus call
+// (leaving only `prerun(x)`) must NOT pass — `prerun(`'s `run(` suffix cannot
+// satisfy the restore check.
+const wrongRepair = bf.broken.replace(/\s*return run__removed\(x\)/, "");
+assert.ok(runChecks(wrongRepair, bf.checks).length > 0, "deleting the call instead of restoring it is rejected (boundary-aware grading)");
+
+// a function that only MENTIONS run( in a string gets no lesson (parsed-call gating)
+const noopNode = bundle.graph.nodes.find((n) => n.kind === "function" && n.label === "noop");
+assert.ok(noopNode, "noop() is a graph node");
+assert.ok(!lessons.some((l) => l.breakAndFix.nodeRef === noopNode!.id), "a string-only mention of run( produces no lesson");
+
+console.log(`course-multilang.test: grounded broken_call_edge for main()->run(); boundary-aware grading; string-only mention produces no lesson`);

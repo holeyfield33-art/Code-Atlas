@@ -28,6 +28,10 @@ export interface GenOptions {
    *  When present, the generator also emits language-agnostic broken_call_edge
    *  lessons for those functions — same grounding as the Babel path, no AST. */
   genericBodies?: Map<string, string>;
+  /** function node id -> qualified callee tokens PARSED from its body (real call
+   *  nodes). A generic lesson's callee must appear here, so a function name that
+   *  only shows up in a string/comment never produces a (false) lesson. */
+  genericCalls?: Map<string, string[]>;
 }
 
 const sha256 = (s: string) => "sha256:" + createHash("sha256").update(s).digest("hex");
@@ -109,10 +113,19 @@ const callSiteRe = (name: string) => new RegExp("(?<![\\w.$])" + escapeRe(name) 
 function makeBrokenCallEdge(callerName: string, body: string, calleeName: string): BreakAndFix | null {
   const solution = body;
   const callPattern = calleeName + "(";
+  const m = callSiteRe(calleeName).exec(solution);
+  if (!m) return null;                                  // no real (boundary-delimited) call site → not groundable
   const broken = solution.replace(callSiteRe(calleeName), calleeName + "__removed(");
-  if (broken === solution) return null;                 // no real call site here → not groundable
+  if (broken === solution) return null;
+  // Grade with the SAME call-site boundary the mutation used: include the char
+  // that precedes the real call (a space/newline/`(`), so the `includes` check
+  // can't be satisfied by a longer identifier that merely ends in the callee
+  // name (e.g. `prerun(` passing a bare `run(` check). Empty lead => call is at
+  // the body start, where no such ambiguity exists.
+  const lead = m.index > 0 ? body[m.index - 1] : "";
+  const includeVal = lead + callPattern;
   const checks: Check[] = [
-    { kind: "includes", value: callPattern, message: "Call `" + calleeName + "(...)` — the real function." },
+    { kind: "includes", value: includeVal, message: "Call `" + calleeName + "(...)` — the real function." },
     { kind: "excludes", value: calleeName + "__removed(", message: "Remove the bogus `" + calleeName + "__removed` call." },
   ];
   return {
@@ -192,23 +205,31 @@ export function generateCourse(graph: AtlasGraph, sources: SourceFile[], opts: G
   }
 
   // broken_call_edge for NON-JS functions, from tree-sitter body slices (no AST).
-  // We scan each function body for a call `callee(` to ANOTHER known function in
-  // the graph — a real call site in real source — and mutate it. (We do not rely
-  // on the calls edge's origin, which some tree-sitter backends attribute to the
-  // file rather than the enclosing function.) Same grounding as the Babel path:
-  // solution is the real body, the break renames a real callee, checks fail on
-  // broken / pass on solution.
+  // A lesson's callee must be (a) PARSED as a real call in the caller's body
+  // (genericCalls — so a name in a string/comment never qualifies) AND (b) present
+  // as a literal `callee(` call site so the text can be mutated. We do not rely on
+  // the calls edge's origin, which some tree-sitter backends attribute to the file.
+  // Same grounding as the Babel path: solution is the real body, the break renames
+  // a real callee, checks fail on broken / pass on solution.
   if (wanted.has("broken_call_edge") && opts.genericBodies && opts.genericBodies.size) {
     const fnById = new Map(funcNodes.map((n) => [n.id, n]));
     const calleeNames = [...new Set(funcNodes.map((n) => n.label))];
+    const lastSeg = (t: string) => t.split(".").pop() || t;
     for (const [callerId, body] of opts.genericBodies) {
       if (lessons.length >= max) break;
       const caller = fnById.get(callerId);
       if (!caller) continue;
-      // a known function (not the caller itself) that is really called here
-      const calleeName = calleeNames.find((lbl) => lbl !== caller.label && callSiteRe(lbl).test(body));
+      // parsed call tokens for this caller (last segment = bare callee name)
+      const parsed = new Set((opts.genericCalls?.get(callerId) ?? []).map(lastSeg));
+      // a known function (not the caller itself) that is BOTH really called (parsed)
+      // and present as a literal `callee(` site we can mutate.
+      const calleeName = calleeNames.find((lbl) => lbl !== caller.label && parsed.has(lbl) && callSiteRe(lbl).test(body));
       if (!calleeName) continue;
-      const callee = funcNodes.find((n) => n.label === calleeName);
+      // Resolve the callee NODE within the caller's own file; only fall back to a
+      // repo-wide match when it is unambiguous. Otherwise attach just the caller,
+      // so we never teach a cross-file/cross-language edge that does not exist.
+      const all = funcNodes.filter((n) => n.label === calleeName);
+      const callee = all.find((n) => n.evidence.path === caller.evidence.path) ?? (all.length === 1 ? all[0] : undefined);
       const bf = makeBrokenCallEdge(caller.label, body, calleeName);
       if (!bf) continue;
       if (redactSecrets(bf.solution).redactions > 0) continue;  // never serialize a lesson built from secret-bearing source
