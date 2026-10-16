@@ -255,7 +255,7 @@ export function generateCourse(graph: AtlasGraph, sources: SourceFile[], opts: G
 
 export interface SecurityLayer { findings?: Finding[]; asiSnapshot?: AsiSnapshot; }
 
-export function assembleBundle(graph: AtlasGraph, course: Course, opts: GenOptions, security?: SecurityLayer, sources?: SourceFile[]): AtlasBundle {
+export function assembleBundle(graph: AtlasGraph, course: Course, opts: GenOptions, security?: SecurityLayer, sources?: SourceFile[], coverage?: AtlasBundle["coverage"]): AtlasBundle {
   const bundle: AtlasBundle = {
     schemaVersion: "1.0",
     product: { name: opts.product },
@@ -265,6 +265,7 @@ export function assembleBundle(graph: AtlasGraph, course: Course, opts: GenOptio
     ...(security?.findings && security.findings.length ? { findings: security.findings } : {}),
     ...(security?.asiSnapshot ? { asiSnapshot: security.asiSnapshot } : {}),
     ...(sources && sources.length ? { sources } : {}),
+    ...(coverage ? { coverage } : {}),
     integrity: { graphHash: sha256(JSON.stringify(graph)), bundleHash: "" },
   };
   bundle.integrity!.bundleHash = sha256(JSON.stringify({ ...bundle, integrity: undefined }));

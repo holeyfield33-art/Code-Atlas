@@ -49,8 +49,9 @@ export class AtlasTools {
       findingsByKind: tally(findings.map((f) => f.kind)),
       findingsByGrade: tally(findings.map((f) => f.grade)),
       findingsByDisposition: tally(findings.map((f) => f.disposition?.status ?? "untriaged")),
+      coverage: this.bundle.coverage ?? null,   // what the scan omitted, counted by reason (null on older bundles)
       entryPoints,
-      note: "Every edge is source-backed; unresolved relationships are diagnostics, never fabricated. Use atlas_get_source to read code only when needed.",
+      note: "Every edge is source-backed; unresolved relationships are diagnostics, never fabricated. `coverage` reports what the scan omitted (unsupported / too large / over the file cap), so absence of a node is not absence from the repo. Use atlas_get_source to read code only when needed.",
     };
   }
 

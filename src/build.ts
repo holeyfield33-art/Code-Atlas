@@ -16,7 +16,7 @@ import { buildMultiLangGraph, type MultiLang } from "./scanner/multilang.js";
 import { generateCourse, assembleBundle } from "./generator/generator.js";
 import type { AtlasGraph, AtlasBundle } from "./schema.js";
 
-export interface BuildOptions { product?: string; rules?: string; findingsReport?: string; security?: boolean; }
+export interface BuildOptions { product?: string; rules?: string; findingsReport?: string; security?: boolean; maxFiles?: number; maxBytes?: number; }
 export interface BuildResult {
   bundle: AtlasBundle;
   langSummary: string;
@@ -55,7 +55,7 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
   const label = basename(root);
   const revision = label + "@" + new Date().toISOString().slice(0, 10);
 
-  const scanned = scanWorkspace(root);
+  const scanned = scanWorkspace(root, { maxFiles: opts.maxFiles, maxBytes: opts.maxBytes });
   if (!scanned.files.length) throw new Error("No supported source files (JS/TS, Python, Ruby) found under " + root);
 
   const byLang = {
@@ -140,7 +140,7 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
     return { path: f.relativePath, code };
   });
 
-  const bundle = assembleBundle(graph, course, { product, repoLabel: label }, security, inlined);
+  const bundle = assembleBundle(graph, course, { product, repoLabel: label }, security, inlined, scanned.coverage);
   const langSummary = [
     byLang.js.length ? `${byLang.js.length} js/ts` : "",
     byLang.vue.length ? `${byLang.vue.length} vue` : "",

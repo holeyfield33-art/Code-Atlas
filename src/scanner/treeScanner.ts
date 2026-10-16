@@ -30,33 +30,57 @@ export function fileLanguage(name: string): FileLanguage | null {
 export interface ScannedFile { relativePath: string; absolutePath: string; language: FileLanguage; }
 export interface ScanOptions { maxFiles?: number; maxBytes?: number; }
 
-export function scanWorkspace(root: string, opts: ScanOptions = {}): { files: ScannedFile[] } {
+/** Why a regular file (or an ignored directory) was NOT analyzed. Every omitted
+ *  item is counted by reason, so coverage is auditable rather than silent. */
+export interface ScanCoverage {
+  scannedFiles: number;        // files actually included
+  totalFilesSeen: number;      // all regular files encountered (scanned + skipped)
+  maxFiles: number;            // the file cap in effect
+  maxBytes: number;            // the per-file size cap in effect
+  skipped: {
+    unsupported: number;       // regular file whose extension no backend handles
+    tooLarge: number;          // over maxBytes
+    overCap: number;           // would have been analyzed, but the file cap was reached
+    symlink: number;           // a symlink (never followed — containment)
+    ignoredDir: number;        // a directory pruned by the ignore list
+    unreadable: number;        // lstat/readdir failed, or a non-file/non-dir entry
+  };
+}
+
+export function scanWorkspace(root: string, opts: ScanOptions = {}): { files: ScannedFile[]; coverage: ScanCoverage } {
   const maxFiles = opts.maxFiles ?? 2000;
   const maxBytes = opts.maxBytes ?? 200_000;
   const files: ScannedFile[] = [];
+  const skipped = { unsupported: 0, tooLarge: 0, overCap: 0, symlink: 0, ignoredDir: 0, unreadable: 0 };
+  let totalFilesSeen = 0;
 
+  // NOTE: we keep walking after the file cap is hit so every omitted file is
+  // counted (as overCap) rather than the traversal silently stopping.
   const walk = (dir: string): void => {
     let entries: string[];
-    try { entries = readdirSync(dir); } catch { return; }
+    try { entries = readdirSync(dir); } catch { skipped.unreadable++; return; }
     for (const name of entries) {
-      if (files.length >= maxFiles) return;
-      if (IGNORE_DIRS.has(name)) continue;
+      if (IGNORE_DIRS.has(name)) { skipped.ignoredDir++; continue; }
       const abs = join(dir, name);
       let st;
       // lstat (not stat) so we see the link itself, not its target. A symlink is
       // never followed — this keeps the scan inside the repo and blocks a crafted
       // link (e.g. leak.ts -> /etc/passwd) from pulling host files into the bundle.
-      try { st = lstatSync(abs); } catch { continue; }
-      if (st.isSymbolicLink()) continue;
+      try { st = lstatSync(abs); } catch { skipped.unreadable++; continue; }
+      if (st.isSymbolicLink()) { skipped.symlink++; continue; }
       if (st.isDirectory()) { walk(abs); continue; }
-      if (!st.isFile() || st.size > maxBytes) continue;
+      if (!st.isFile()) { skipped.unreadable++; continue; }
+      totalFilesSeen++;
+      if (st.size > maxBytes) { skipped.tooLarge++; continue; }
       const language = fileLanguage(name);
-      if (language) files.push({ relativePath: relative(root, abs).split(sep).join("/"), absolutePath: abs, language });
+      if (!language) { skipped.unsupported++; continue; }
+      if (files.length >= maxFiles) { skipped.overCap++; continue; }
+      files.push({ relativePath: relative(root, abs).split(sep).join("/"), absolutePath: abs, language });
     }
   };
 
   walk(root);
-  return { files: files.slice(0, maxFiles) };
+  return { files, coverage: { scannedFiles: files.length, totalFilesSeen, maxFiles, maxBytes, skipped } };
 }
 
 export function readSource(abs: string): string {
