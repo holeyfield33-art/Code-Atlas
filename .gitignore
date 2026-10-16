@@ -17,6 +17,10 @@ docs/*dogfood*.md
 notes/
 .env
 .env.*
+# ...but sanitized templates (placeholder values only) stay trackable
+!.env.example
+!.env.sample
+!.env.template
 *.local.*
 .claude/settings.local.json
 .astra/
