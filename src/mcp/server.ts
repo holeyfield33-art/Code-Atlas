@@ -10,13 +10,15 @@
  *   { "mcpServers": { "code-atlas": { "command": "code-atlas-mcp",
  *       "args": ["--bundle", "atlas.bundle.json"] } } }
  */
-import { readFileSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { parseBundle, type AtlasBundle } from "../schema.js";
-import { AtlasTools } from "./tools.js";
+import { AtlasTools, bundleId } from "./tools.js";
+import { writeFileAtomic } from "../atomicWrite.js";
 import { applyDisposition, DISPOSITION_STATUSES } from "../triage.js";
 import { runAtlasExec } from "./sandbox.js";
 
@@ -40,23 +42,8 @@ export interface AtlasCtx {
   triage(findingId: string, status: string, by: string, note?: string): unknown;
 }
 
-/** Deterministic hash of ALL state a read tool can surface — not the (optional,
- *  generation-time, and after triage stale) `integrity` field. The atlas_exec
- *  receipt must change whenever any read could change: different sources, edges,
- *  diagnostics, findings, course, or identity fields all move the hash, and it is
- *  recomputed when atlas_triage commits a new bundle. Same bundle => same hash,
- *  so replay still holds. */
-export function bundleId(bundle: AtlasBundle): string {
-  const visible = {
-    product: bundle.product,
-    repository: bundle.repository,
-    graph: bundle.graph,                 // nodes + edges + diagnostics
-    sources: bundle.sources ?? null,
-    findings: bundle.findings ?? null,
-    course: bundle.course ?? null,
-  };
-  return "sha256:" + createHash("sha256").update(JSON.stringify(visible)).digest("hex").slice(0, 16);
-}
+// bundleId lives in tools.ts (shared by the context-pack and atlas_exec receipts).
+export { bundleId };
 
 export function makeCtx(bundle: AtlasBundle, path: string | null): AtlasCtx {
   const ctx: AtlasCtx = {
@@ -67,7 +54,7 @@ export function makeCtx(bundle: AtlasBundle, path: string | null): AtlasCtx {
       // Persist FIRST: if the write throws (read-only bundle, full disk), the
       // in-memory state must NOT advance, or a later successful triage could
       // silently commit this failed decision. Commit only after the write.
-      if (path) writeFileSync(path, JSON.stringify(updated, null, 2));
+      if (path) writeFileAtomic(path, JSON.stringify(updated, null, 2));
       bundle = updated;                       // commit the in-memory bundle
       ctx.tools = new AtlasTools(updated);    // refresh reads from the committed value
       ctx.bundleHash = bundleId(updated);     // and the exec receipt id, so replay reflects the new state
@@ -160,6 +147,7 @@ async function main() {
 }
 
 // Run only when invoked directly.
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Compare as file URLs: `file://${argv[1]}` is wrong on Windows (backslashes, drive letter).
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   main().catch((e) => { console.error(String(e)); process.exit(1); });
 }
