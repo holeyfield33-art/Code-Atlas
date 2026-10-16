@@ -42,8 +42,12 @@ export class AtlasTools {
   private brief = (id: string) => { const n = this.byId.get(id); return n ? { id, label: n.label, kind: n.kind, path: n.evidence.path, line: n.evidence.line } : { id }; };
   // A call brief that flags a name-INFERRED edge (from -> to), so an agent never
   // treats a name-based match as a proven call.
-  private callBrief = (from: string, to: string) =>
-    this.inferredCall.has(from + "->" + to) ? { ...this.brief(to), inferred: true } : this.brief(to);
+  // `show` is the NEIGHBOUR node to describe; `from`->`to` is the directed call
+  // edge whose confidence we check. For calls: show=callee, edge id->callee. For
+  // calledBy: show=caller, edge caller->id. (Returning brief(to) unconditionally
+  // made calledBy describe the selected node instead of its caller.)
+  private callBrief = (show: string, from: string, to: string) =>
+    this.inferredCall.has(from + "->" + to) ? { ...this.brief(show), inferred: true } : this.brief(show);
 
   overview() {
     const g = this.bundle.graph;
@@ -79,8 +83,8 @@ export class AtlasTools {
     return {
       ...this.brief(id),
       container: this.containerOf.get(id) ? this.brief(this.containerOf.get(id)!) : null,
-      calls: (this.callees.get(id) ?? []).map((x) => this.callBrief(id, x)),
-      calledBy: (this.callers.get(id) ?? []).map((x) => this.callBrief(x, id)),
+      calls: (this.callees.get(id) ?? []).map((x) => this.callBrief(x, id, x)),
+      calledBy: (this.callers.get(id) ?? []).map((x) => this.callBrief(x, x, id)),
       imports: (this.importsOut.get(id) ?? []).map((x) => this.brief(x)),
       hasSource: this.byPath.has(n.evidence.path),
       hasThreats: (this.findingsByNode.get(id)?.length ?? 0) > 0,
@@ -106,8 +110,8 @@ export class AtlasTools {
     const want = (k: string) => !kinds || kinds.includes(k);
     return {
       ...this.brief(id),
-      ...(want("calls") ? { calls: (this.callees.get(id) ?? []).map((x) => this.callBrief(id, x)) } : {}),
-      ...(want("calledBy") ? { calledBy: (this.callers.get(id) ?? []).map((x) => this.callBrief(x, id)) } : {}),
+      ...(want("calls") ? { calls: (this.callees.get(id) ?? []).map((x) => this.callBrief(x, id, x)) } : {}),
+      ...(want("calledBy") ? { calledBy: (this.callers.get(id) ?? []).map((x) => this.callBrief(x, x, id)) } : {}),
       ...(want("imports") ? { imports: (this.importsOut.get(id) ?? []).map((x) => this.brief(x)) } : {}),
     };
   }

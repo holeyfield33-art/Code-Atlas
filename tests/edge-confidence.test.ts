@@ -44,6 +44,13 @@ for (const e of bundle.graph.edges)
 const tools = new AtlasTools(bundle);
 const pyMain = bundle.graph.nodes.find((n) => n.kind === "function" && n.label === "main" && n.evidence.method === "tree-sitter-static")!;
 const node = tools.getNode(pyMain.id) as any;
-assert.ok(node.calls.some((c: any) => c.inferred === true), "getNode marks the name-inferred callee as inferred");
+assert.ok(node.calls.some((c: any) => c.label === "run" && c.inferred === true), "getNode marks the name-inferred callee (run) as inferred");
 
-console.log("edge-confidence.test: tree-sitter calls are inferred, Babel calls are not, contains/imports resolved, MCP flags inferred callees");
+// calledBy must describe the CALLER, not the selected node itself
+const pyRun = bundle.graph.nodes.find((n) => n.kind === "function" && n.label === "run" && n.evidence.method === "tree-sitter-static")!;
+const runNode = tools.getNode(pyRun.id) as any;
+assert.ok(runNode.calledBy.some((c: any) => c.label === "main" && c.inferred === true),
+  "getNode(run).calledBy names the caller main (not run) and marks it inferred");
+assert.ok(!runNode.calledBy.some((c: any) => c.id === pyRun.id), "calledBy never lists the selected node itself");
+
+console.log("edge-confidence.test: tree-sitter calls are inferred, Babel calls are not, contains/imports resolved, MCP flags inferred callees + names the right caller");

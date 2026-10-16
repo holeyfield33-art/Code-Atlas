@@ -475,6 +475,9 @@ function linkColor(link){
     const s = srcId(link.source), t = srcId(link.target);
     if(s!==state.selected && t!==state.selected) return dim(base);
   }
+  // name-inferred calls render MUTED (the bundled renderer has no line-dash API),
+  // so an unproven edge is visually subordinate to a resolved one.
+  if(link.confidence==="inferred") return "color-mix(in srgb,"+base+" 45%, transparent)";
   return base;
 }
 function dim(hex){ // fade a hex color toward the background for the "Learn" focus effect
@@ -805,11 +808,10 @@ function buildFG(){
         <b>${esc(n.label)}</b><br><span style="color:#9bb0c3">${n.kind}${state.lessons.has(n.id)?" · 📘 lesson":""}</span></div>`)
     .nodeColor(nodeColor)
     .linkColor(linkColor)
-    .linkWidth(l=>l.kind==="calls"?0.8:0.5)
+    .linkWidth(l=>l.confidence==="inferred"?0.4:(l.kind==="calls"?0.8:0.5))   // inferred = thinner + muted (no line-dash API in the bundled renderer)
     .linkOpacity(0.5)
     .linkDirectionalArrowLength(l=>l.kind==="contains"?0:3)
     .linkDirectionalArrowRelPos(1)
-    .linkLineDash(l=>l.confidence==="inferred"?[2,2]:null)   // dashed = name-inferred, not proven
     .linkDirectionalParticles(l=>state.mode==="learn" && state.selected && (srcId(l.source)===state.selected||srcId(l.target)===state.selected)?2:0)
     .linkDirectionalParticleWidth(1.6)
     .onNodeClick(n=>{ focusNode(n.id); openInspector(n.id); })
@@ -840,7 +842,7 @@ function updateLegend(){
       <span><span class="ln" style="border-color:var(--k-contains)"></span><b>contains</b></span>
       <span><span class="ln" style="border-color:var(--k-imports)"></span><b>imports</b></span>
       <span><span class="ln" style="border-color:var(--k-calls)"></span><b>calls</b></span>
-      <span><span class="ln" style="border-color:var(--k-calls);border-style:dashed"></span><b>calls (inferred)</b></span>`;
+      <span><span class="ln" style="border-color:var(--k-calls);opacity:0.45"></span><b>calls (inferred)</b></span>`;
   }
 }
 
