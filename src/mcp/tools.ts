@@ -33,6 +33,7 @@ export function bundleId(bundle: AtlasBundle): string {
 export class AtlasTools {
   private byId = new Map<string, AtlasNode>();
   private byPath = new Map<string, string>();                 // file path -> code
+  private truncatedPaths = new Set<string>();                 // files only partially inlined
   private callers = new Map<string, string[]>();
   private callees = new Map<string, string[]>();
   private importsOut = new Map<string, string[]>();
@@ -47,7 +48,7 @@ export class AtlasTools {
 
   constructor(private bundle: AtlasBundle) {
     for (const n of bundle.graph.nodes) this.byId.set(n.id, n);
-    for (const s of bundle.sources ?? []) this.byPath.set(s.path, s.code);
+    for (const s of bundle.sources ?? []) { this.byPath.set(s.path, s.code); if (s.truncated) this.truncatedPaths.add(s.path); }
     for (const e of bundle.graph.edges) {
       if (e.kind === "calls") {
         push(this.callees, e.from, e.to); push(this.callers, e.to, e.from);
@@ -57,7 +58,28 @@ export class AtlasTools {
       else if (e.kind === "contains") this.containerOf.set(e.to, e.from);
     }
     for (const f of bundle.findings ?? []) for (const ref of f.nodeRefs) push(this.findingsByNode, ref, f);
-    for (const l of bundle.course?.lessons ?? []) for (const ref of l.nodeRefs) if (!this.lessonByNode.has(ref)) this.lessonByNode.set(ref, l);
+    // Same join as the viewer: the defect's own node first, then every taught node.
+    const lessons = bundle.course?.lessons ?? [];
+    for (const l of lessons) if (!this.lessonByNode.has(l.breakAndFix.nodeRef)) this.lessonByNode.set(l.breakAndFix.nodeRef, l);
+    for (const l of lessons) for (const ref of l.nodeRefs) if (!this.lessonByNode.has(ref)) this.lessonByNode.set(ref, l);
+  }
+
+  /** The inlined source window for a node, or why there is none. Never returns
+   *  an empty/inverted range as if it were source. */
+  private sourceWindow(n: AtlasNode):
+    | { available: true; from: number; to: number; source: string; truncated: boolean; fileTruncated: boolean }
+    | { available: false; reason: string } {
+    const code = this.byPath.get(n.evidence.path);
+    if (code === undefined) return { available: false, reason: "source not inlined in this bundle" };
+    const lines = code.split("\n");
+    const fileTruncated = this.truncatedPaths.has(n.evidence.path);
+    const target = n.evidence.line || 1;
+    if (target > lines.length) return { available: false,
+      reason: fileTruncated
+        ? `line ${target} is past the inlined prefix of ${n.evidence.path} (${lines.length} lines inlined; the file was truncated at build time)`
+        : `line ${target} is outside the inlined source of ${n.evidence.path} (${lines.length} lines)` };
+    const [from, to] = n.kind === "function" ? [Math.max(1, target - 1), Math.min(lines.length, target + 60)] : [1, Math.min(lines.length, 400)];
+    return { available: true, from, to, source: lines.slice(from - 1, to).join("\n"), truncated: to < lines.length || fileTruncated, fileTruncated };
   }
 
   private label = (id: string) => this.byId.get(id)?.label ?? id;
@@ -108,7 +130,7 @@ export class AtlasTools {
       calls: (this.callees.get(id) ?? []).map((x) => this.callBrief(x, id, x)),
       calledBy: (this.callers.get(id) ?? []).map((x) => this.callBrief(x, x, id)),
       imports: (this.importsOut.get(id) ?? []).map((x) => this.brief(x)),
-      hasSource: this.byPath.has(n.evidence.path),
+      hasSource: this.sourceWindow(n).available,                 // per node: false past a truncated prefix
       hasThreats: (this.findingsByNode.get(id)?.length ?? 0) > 0,
       hasLesson: this.lessonByNode.has(id),
       evidence: n.evidence,
@@ -118,12 +140,9 @@ export class AtlasTools {
   getSource(id: string) {
     const n = this.byId.get(id);
     if (!n) return { error: "unknown node id", id };
-    const code = this.byPath.get(n.evidence.path);
-    if (code === undefined) return { error: "source not inlined in this bundle", path: n.evidence.path };
-    const lines = code.split("\n");
-    const target = n.evidence.line || 1;
-    const [start, end] = n.kind === "function" ? [Math.max(1, target - 1), Math.min(lines.length, target + 60)] : [1, Math.min(lines.length, 400)];
-    return { ...this.brief(id), from: start, to: end, source: lines.slice(start - 1, end).join("\n"), truncated: end < lines.length };
+    const w = this.sourceWindow(n);
+    if (!w.available) return { ...this.brief(id), error: "source unavailable", reason: w.reason, path: n.evidence.path };
+    return { ...this.brief(id), from: w.from, to: w.to, source: w.source, truncated: w.truncated, ...(w.fileTruncated ? { fileTruncated: true } : {}) };
   }
 
   neighbors(id: string, kinds?: string[]) {
@@ -182,25 +201,42 @@ export class AtlasTools {
       frontier = next;
     }
     const ranked = [...score.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
-    // budget fill: include source for the top nodes until budget (approx tokens = chars/4)
-    const selected: any[] = []; const included: any[] = []; let used = 0; const cap = budgetTokens * 4;
+    // Budget the WHOLE serialized response (approx tokens = chars/4): the envelope
+    // (task, note, receipt) is charged first, then node metadata and source slices
+    // draw from the same pool in rank order. Selection stops at the first node whose
+    // metadata no longer fits; the rest are counted in `omitted`, not returned.
+    const NOTE = "Budgeted, source-backed pack for this task: the whole response fits budgetTokens (~4 chars/token). " +
+      "`omitted` counts lower-ranked matches left out; raise the budget or narrow the task to see them. " +
+      "Replayable: same bundle + task + selector + budget => same receipt hash.";
+    const cap = Math.max(0, budgetTokens) * 4;
+    const cost = (x: unknown) => JSON.stringify(x).length + 1;
+    let used = cost({ task, note: NOTE, omitted: ranked.length, budget: { tokens: budgetTokens, approxTokensUsed: budgetTokens },
+      receipt: { task, selector: "atlas-ctx-v2", budgetTokens, candidates: ranked.length, selectedCount: ranked.length,
+        selectionHash: sha(""), bundleHash: sha(""), sourceHash: sha(""), sourceIncluded: [], hash: sha("") }, selected: [], sourceIncluded: [] });
+    const selected: any[] = []; const included: any[] = [];
     for (const id of ranked) {
-      const b = this.brief(id); const why = evidence.get(id);
-      const n = this.byId.get(id)!; const src = this.getSource(id);
-      const cost = ("source" in src ? src.source.length : 0) + 80;
-      selected.push({ ...b, why, grade: (this.findingsByNode.get(id)?.[0]?.grade) ?? null });
-      if (n.kind === "function" && "source" in src && used + cost <= cap) { included.push({ id, label: n.label, path: n.evidence.path, source: src.source }); used += cost; }
+      const n = this.byId.get(id)!;
+      const entry = { ...this.brief(id), why: evidence.get(id), grade: (this.findingsByNode.get(id)?.[0]?.grade) ?? null };
+      const entryCost = cost(entry);
+      if (used + entryCost > cap) break;
+      selected.push(entry); used += entryCost;
+      if (n.kind !== "function") continue;
+      const w = this.sourceWindow(n);
+      if (!w.available) continue;
+      const item = { id, label: n.label, path: n.evidence.path, from: w.from, to: w.to, source: w.source };
+      const itemCost = cost(item) + id.length + 3;                     // + its id in the receipt
+      if (used + itemCost <= cap) { included.push(item); used += itemCost; }
     }
-    // v2: the receipt binds the pack to the CONTENT it returned. bundleHash covers
-    // every query-visible byte; sourceHash covers the exact slices handed out. A
-    // function whose source changes but keeps its node id therefore changes the hash.
-    const receipt = {
-      task, selector: "atlas-ctx-v2", budgetTokens, bundleHash: this.bundleHash,
-      selected: selected.map((s) => s.id), sourceIncluded: included.map((i) => i.id),
-      sourceHash: sha(JSON.stringify(included.map((i) => [i.id, i.source]))),
-    };
-    return { task, selected, sourceIncluded: included, receipt: { ...receipt, hash: sha(JSON.stringify(receipt)) },
-      note: "Minimal source-backed pack for this task. Replayable: same bundle content + task + selector => same receipt hash." };
+    // v2: the receipt binds the pack to the CONTENT it returned. bundleHash covers every
+    // query-visible byte; sourceHash covers the exact slices handed out; selectionHash the
+    // ranked selection (the list itself is not repeated, to keep the response bounded).
+    const receipt = { task, selector: "atlas-ctx-v2", budgetTokens, bundleHash: this.bundleHash,
+      candidates: ranked.length, selectedCount: selected.length,
+      selectionHash: sha(selected.map((s) => s.id).join("\n")), sourceIncluded: included.map((i) => i.id),
+      sourceHash: sha(JSON.stringify(included.map((i) => [i.id, i.source]))) };
+    return { task, selected, sourceIncluded: included, omitted: ranked.length - selected.length,
+      budget: { tokens: budgetTokens, approxTokensUsed: Math.ceil(used / 4) },
+      receipt: { ...receipt, hash: sha(JSON.stringify(receipt)) }, note: NOTE };
   }
 }
 

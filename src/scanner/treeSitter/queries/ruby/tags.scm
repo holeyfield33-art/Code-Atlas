@@ -57,6 +57,9 @@
 
 (call method: (identifier) @name) @reference.call
 
+; Candidate bare calls. web-tree-sitter does not evaluate `#is-not? local`, so
+; this also matches variables, parameters, def names and constants; mapper.cjs
+; (rbClassifyRef) filters those out with Ruby's lexical local-variable rule.
 (
   [(identifier) (constant)] @name @reference.call
   (#is-not? local)

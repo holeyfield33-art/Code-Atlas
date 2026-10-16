@@ -81,7 +81,7 @@ export function buildServer(ctx: AtlasCtx): McpServer {
     async ({ id }) => ok(ctx.tools.getNode(id)));
 
   server.registerTool("atlas_get_source",
-    { title: "Read source", description: "The source of ONE node (a function's body or a file head). Pull this only when you actually need the code.", inputSchema: { id: z.string() }, annotations: RO },
+    { title: "Read source", description: "The source of ONE node (a function's body or a file head). Pull this only when you actually need the code. If the node lies past the inlined prefix of a large file, returns error + reason instead of empty text.", inputSchema: { id: z.string() }, annotations: RO },
     async ({ id }) => ok(ctx.tools.getSource(id)));
 
   server.registerTool("atlas_neighbors",
@@ -89,7 +89,7 @@ export function buildServer(ctx: AtlasCtx): McpServer {
     async ({ id, kinds }) => ok(ctx.tools.neighbors(id, kinds)));
 
   server.registerTool("atlas_context_pack",
-    { title: "Minimal context for a task", description: "Horos-style: given a task, selects the minimal source-backed set of components (entrypoint match + bounded graph walk + token budget) and returns a replayable receipt. Use this to load only what a task needs.", inputSchema: { task: z.string(), budgetTokens: z.number().int().min(200).max(20000).optional() }, annotations: RO },
+    { title: "Minimal context for a task", description: "Horos-style: given a task, selects the minimal source-backed set of components (entrypoint match + bounded graph walk) and returns a replayable receipt. budgetTokens bounds the WHOLE response (metadata + source); lower-ranked matches are counted in `omitted`. Use this to load only what a task needs.", inputSchema: { task: z.string(), budgetTokens: z.number().int().min(200).max(20000).optional() }, annotations: RO },
     async ({ task, budgetTokens }) => ok(ctx.tools.contextPack(task, budgetTokens)));
 
   server.registerTool("atlas_threats",

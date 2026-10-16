@@ -714,6 +714,12 @@ function sourceSection(n){
   if(!code) return "";
   const lines = code.split("\n");
   const target = n.evidence.line||1;
+  if(target > lines.length){
+    const why = state.truncatedSources && state.truncatedSources.has(n.evidence.path)
+      ? `this file was truncated at build time and only its first ${lines.length} lines are embedded`
+      : `the embedded source has only ${lines.length} lines`;
+    return `<p class="role">Source for line ${target} is not available in this bundle: ${esc(why)}. Open ${esc(n.evidence.path)} in your editor.</p>`;
+  }
   let start, end;
   if(n.kind==="function"){ start=Math.max(1,target-1); end=Math.min(lines.length, start+48); }
   else { start=1; end=Math.min(lines.length, 200); }
@@ -820,16 +826,39 @@ function securitySection(n){
    is an unbounded backtracking (ReDoS) surface with no safe bound in a standalone
    page, and shape heuristics are provably incomplete (e.g. (a|aa)+$). Generated
    lessons only use includes/excludes, so the regex kind is disabled at runtime. */
-function runChecks(code, checks){
+function runChecks(code, checks, file){
   const fails=[];
+  const body=codeOnly(code, file||"");                               // comments never satisfy a check
   for(const c of (checks||[])){
     if(c.kind==="regex"){ fails.push("Regex checks are disabled in this build for safety."); continue; }
     let ok=true;
-    if(c.kind==="includes") ok = code.includes(c.value);            // full answer
-    else if(c.kind==="excludes") ok = !code.includes(c.value);      // full answer
+    if(c.kind==="includes") ok = body.includes(c.value);
+    else if(c.kind==="excludes") ok = !body.includes(c.value);
     if(!ok) fails.push(c.message||"A check did not pass.");
   }
   return fails;
+}
+/* Mirror of generator.ts `codeOnly` — keep in sync. Strips comments (quote-aware)
+   for the language inferred from the lesson's file; unknown language → unchanged. */
+function codeOnly(code, file){
+  if(!file) return code;
+  const hash=/\.(?:py|pyi|rb|rake)$/i.test(file), ruby=/\.(?:rb|rake)$/i.test(file);
+  const blank=s=>s.replace(/[^\n]/g,"");
+  let out="", quote=null;
+  for(let i=0;i<code.length;i++){
+    const c=code[i];
+    if(c==="\\" && i+1<code.length){ out+=c+code[++i]; continue; }
+    if(quote){ out+=c; if(c===quote) quote=null; continue; }
+    if(c==='"'||c==="'"||(!hash&&c==="`")){ quote=c; out+=c; continue; }
+    if(hash ? c==="#" : (c==="/"&&code[i+1]==="/")){ const nl=code.indexOf("\n",i); if(nl<0) break; i=nl-1; continue; }
+    if(!hash && c==="/" && code[i+1]==="*"){ const end=code.indexOf("*/",i+2), stop=end<0?code.length:end+2; out+=blank(code.slice(i,stop)); i=stop-1; continue; }
+    if(ruby && c==="=" && (i===0||code[i-1]==="\n") && code.startsWith("=begin",i)){
+      const end=code.indexOf("\n=end",i), eol=end<0?-1:code.indexOf("\n",end+1), stop=(end<0||eol<0)?code.length:eol;
+      out+=blank(code.slice(i,stop)); i=stop-1; continue;
+    }
+    out+=c;
+  }
+  return out;
 }
 function renderLesson(nodeId){
   const slot=document.getElementById("lessonSlot"); if(!slot) return;
@@ -853,14 +882,14 @@ function renderLesson(nodeId){
         <button class="btn" id="bfSolve">Show fix</button>
       </div>
       <div class="bf-feedback" id="bfFeedback" hidden></div>
-      <p class="bf-note">Structure check — confirms the shape of your fix, not its runtime behaviour. The real build verifies this with the conformance checker.</p>
+      <p class="bf-note">Text check on your code (comments ignored) — it confirms the call or guard is back where it belongs, not that the code runs or behaves correctly.</p>
     </div>`;
   const ta=document.getElementById("bfCode"); ta.value=bf.broken;
   const fb=document.getElementById("bfFeedback");
   document.getElementById("bfReset").addEventListener("click",()=>{ ta.value=bf.broken; fb.hidden=true; });
   document.getElementById("bfSolve").addEventListener("click",()=>{ ta.value=bf.solution; fb.hidden=true; });
   document.getElementById("bfCheck").addEventListener("click",()=>{
-    const fails=runChecks(ta.value, bf.checks);
+    const fails=runChecks(ta.value, bf.checks, bf.file);
     fb.hidden=false;
     if(fails.length===0){
       fb.className="bf-feedback pass";
@@ -893,6 +922,19 @@ function focusNode(id){
   FG.cameraPosition({x:(node.x||0)*k,y:(node.y||0)*k,z:(node.z||0)*k}, node, 900);
 }
 
+/* Lessons join to the graph through the schema's `breakAndFix.nodeRef` (where the
+   defect lives) and `nodeRefs` (every node the lesson teaches) — the same join the
+   MCP server uses. `nodeId` is accepted for older hand-written bundles. The first
+   lesson for a node wins, with the defect's own node taking precedence. */
+function indexLessons(course){
+  const m = new Map();
+  const lessons = (course && course.lessons) || [];
+  const add = (ref,l)=>{ if(ref && !m.has(ref)) m.set(ref,l); };
+  for(const l of lessons){ add(l.breakAndFix && l.breakAndFix.nodeRef, l); add(l.nodeId, l); }
+  for(const l of lessons) for(const ref of (l.nodeRefs||[])) add(ref, l);
+  return m;
+}
+
 /* ---- boot ----------------------------------------------------------------- */
 function loadGraph(raw, {sample=false}={}){
   const norm = normalize(raw);
@@ -902,9 +944,10 @@ function loadGraph(raw, {sample=false}={}){
   state.detail = norm.graph.nodes.length > COLLAPSE_THRESHOLD ? "files" : "full";
   state.expanded = new Set();
   state.course = norm.course;
-  state.lessons = new Map(((norm.course&&norm.course.lessons)||[]).map(l=>[l.nodeId,l]));
+  state.lessons = indexLessons(norm.course);
   state.asi = norm.asi;
   state.sources = new Map(((norm.sources)||[]).map(s=>[s.path,s.code]));
+  state.truncatedSources = new Set(((norm.sources)||[]).filter(s=>s.truncated).map(s=>s.path));
   buildFindings(norm.findings);
   loadDone();
   const name = norm.productName || PRODUCT.name;

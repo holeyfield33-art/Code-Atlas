@@ -9,9 +9,11 @@
  *
  * v1 scope + honest limits:
  *  - Languages: Python, Ruby (grow by adding a grammar wasm + tags.scm).
- *  - `calls` edges originate from the FILE node, not the enclosing function
- *    (name-based resolution — coarser than the Babel backend). Tracked as a
- *    follow-up; it never fabricates, it is only less precise.
+ *  - `calls` edges originate from the enclosing definition (file node for
+ *    top-level calls). Python resolves by unique name. Ruby is receiver-aware:
+ *    variables/params/def names are not calls, and a call resolves only when its
+ *    receiver pins the owner (self/own class/superclass, `Const.m`, unique
+ *    top-level/module method); anything else is a diagnostic, never a guess.
  *  - contentHash is per file (sha256 of the file source at this revision).
  *  - line/column are derived from character offsets (ASCII-safe; byte-exact
  *    positions for non-ASCII source are a follow-up).

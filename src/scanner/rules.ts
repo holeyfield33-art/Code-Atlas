@@ -86,7 +86,8 @@ export const DEFAULT_RULES: Rule[] = [
  * (`system cmd`, `Marshal.load payload`) are covered. A token with a dot
  * (`os.system`, `Marshal.load`) matches that callee or a deeper-receiver form but
  * stays precise (never an unrelated `foo.run` for `subprocess.run`); a bare token
- * (`eval`, `system`) matches by last segment. `guardText` handles non-call guards
+ * (`eval`, `system`) matches only the receiverless call or its `Kernel.`/`builtins.`
+ * form (never `re.compile` for `compile`); `*.name` matches `name` on any receiver. `guardText` handles non-call guards
  * (e.g. a `Loader=SafeLoader` keyword arg) and only ever suppresses a finding.
  *
  * Every rule is STATIC: a structural lead, not proof the input is attacker-
@@ -120,7 +121,7 @@ export const PYTHON_RULES: Rule[] = [
     title: "Unsafe deserialization",
     explanation:
       "This function deserializes with a primitive that can execute code or construct arbitrary objects (pickle / marshal / yaml.load without SafeLoader). Static lead — not proof the payload is untrusted.",
-    when: { callsAny: ["pickle.loads", "pickle.load", "marshal.loads", "marshal.load", "yaml.load"], callsNoneOf: ["safe_load"], guardText: ["SafeLoader"] },
+    when: { callsAny: ["pickle.loads", "pickle.load", "marshal.loads", "marshal.load", "yaml.load"], callsNoneOf: ["*.safe_load"], guardText: ["SafeLoader"] },
     blast: "callers",
     asi: asi("AAC-11"),
   },
@@ -129,7 +130,7 @@ export const PYTHON_RULES: Rule[] = [
     title: "Secret-like handling without visible redaction",
     explanation:
       "This function's name suggests it handles secret material (token / password / credential / api_key) and no redaction call is visible inside it. Static lead only.",
-    when: { nameMatches: "(token|secret|password|credential|api_?key)", callsNoneOf: ["redact", "mask", "sanitize"] },
+    when: { nameMatches: "(token|secret|password|credential|api_?key)", callsNoneOf: ["*.redact", "*.mask", "*.sanitize"] },
     blast: "none",
     asi: asi("AAC-09"),
   },
@@ -138,7 +139,7 @@ export const PYTHON_RULES: Rule[] = [
     title: "Input validation present",
     explanation:
       "This function calls a validation / quoting primitive — a control artifact. Present does not mean effective; a reviewer must confirm it guards the relevant input.",
-    when: { callsAny: ["validate", "is_valid", "clean", "shlex.quote", "escape"] },
+    when: { callsAny: ["*.validate", "*.is_valid", "*.clean", "shlex.quote", "*.escape"] },
     blast: "none",
     asi: asi("AAC-01"),
   },
@@ -150,7 +151,7 @@ export const RUBY_RULES: Rule[] = [
     title: "Dynamic code execution",
     explanation:
       "This method reaches a dynamic code-execution primitive (eval / instance_eval / class_eval / send). If any part of the argument is attacker-influenced this is arbitrary code or method execution. Static lead only.",
-    when: { callsAny: ["eval", "instance_eval", "class_eval", "module_eval", "send", "public_send"] },
+    when: { callsAny: ["eval", "*.instance_eval", "*.class_eval", "*.module_eval", "*.send", "*.public_send"] },
     blast: "callers",
     asi: asi("AAC-11"),
   },
@@ -159,7 +160,7 @@ export const RUBY_RULES: Rule[] = [
     title: "OS command execution",
     explanation:
       "This method shells out (system / exec / Open3 / %x). If the command string is attacker-influenced this is command injection. Static lead — not proof the input is untrusted.",
-    when: { callsAny: ["system", "exec", "Open3.capture2", "Open3.capture3", "Open3.popen3", "Kernel.system"], callsNoneOf: ["Shellwords.escape", "shellescape"] },
+    when: { callsAny: ["system", "exec", "Open3.capture2", "Open3.capture3", "Open3.popen3", "Kernel.system"], callsNoneOf: ["Shellwords.escape", "*.shellescape"] },
     blast: "callers",
     asi: asi("AAC-11"),
   },
@@ -168,7 +169,7 @@ export const RUBY_RULES: Rule[] = [
     title: "Unsafe deserialization",
     explanation:
       "This method deserializes with a primitive that can construct arbitrary objects (Marshal.load / YAML.load without safe_load). Static lead only.",
-    when: { callsAny: ["Marshal.load", "Marshal.restore", "YAML.load"], callsNoneOf: ["safe_load"] },
+    when: { callsAny: ["Marshal.load", "Marshal.restore", "YAML.load"], callsNoneOf: ["*.safe_load"] },
     blast: "callers",
     asi: asi("AAC-11"),
   },
@@ -177,7 +178,7 @@ export const RUBY_RULES: Rule[] = [
     title: "Secret-like handling without visible redaction",
     explanation:
       "This method's name suggests it handles secret material (token / password / credential / api_key) and no redaction call is visible inside it. Static lead only.",
-    when: { nameMatches: "(token|secret|password|credential|api_?key)", callsNoneOf: ["redact", "mask", "sanitize"] },
+    when: { nameMatches: "(token|secret|password|credential|api_?key)", callsNoneOf: ["*.redact", "*.mask", "*.sanitize"] },
     blast: "none",
     asi: asi("AAC-09"),
   },
@@ -186,7 +187,7 @@ export const RUBY_RULES: Rule[] = [
     title: "Input validation present",
     explanation:
       "This method calls a validation / escaping primitive (validate / permit / sanitize / shellescape) — a control artifact. Present does not mean effective; a reviewer must confirm it guards the relevant input.",
-    when: { callsAny: ["validate", "validates", "permit", "sanitize", "shellescape"] },
+    when: { callsAny: ["*.validate", "*.validates", "*.permit", "*.sanitize", "*.shellescape"] },
     blast: "none",
     asi: asi("AAC-01"),
   },
