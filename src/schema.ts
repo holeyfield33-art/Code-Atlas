@@ -49,6 +49,12 @@ export const AtlasEdgeSchema = z.object({
   to: z.string(),                          // node id
   kind: z.enum(["contains", "imports", "calls"]),
   evidence: EvidenceSchema,
+  // How the target was resolved. "resolved" (or absent) = structural/import-
+  // resolved, trustworthy as drawn. "inferred" = matched by NAME only (the
+  // tree-sitter backend's name-based call resolution): a real call site to the
+  // repo's only definition of that name, but NOT proof this is the callee, so
+  // it must never render as a proven edge.
+  confidence: z.enum(["resolved", "inferred"]).optional(),
 });
 
 /** A relationship the analyzer could NOT resolve becomes a diagnostic, never a

@@ -126,7 +126,11 @@ export async function buildMultiLangGraph(
     if (!EDGE_KINDS.has(e.kind as AtlasEdge["kind"])) continue;
     if (seen.has(e.id)) continue;                                // unique edge ids
     seen.add(e.id);
-    edges.push({ id: e.id, from: e.source, to: e.target, kind: e.kind as AtlasEdge["kind"], evidence: { ...from.evidence } });
+    const kind = e.kind as AtlasEdge["kind"];
+    // tree-sitter call edges are resolved by NAME only (not by imports), so they
+    // are inferred, never proven. contains/imports are structural/path-resolved.
+    const confidence: AtlasEdge["confidence"] = kind === "calls" ? "inferred" : "resolved";
+    edges.push({ id: e.id, from: e.source, to: e.target, kind, evidence: { ...from.evidence }, confidence });
   }
 
   const diagnostics = g.diagnostics.map((d) => ({ path: d.file ?? "", message: d.message }));

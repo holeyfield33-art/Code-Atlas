@@ -103,6 +103,7 @@
   .conn-row .lab{font-family:var(--mono);font-size:10px;color:var(--fg-faint);min-width:64px;text-transform:uppercase}
   .conn-row .vals{color:var(--fg-dim);word-break:break-word}
   .conn-row .vals b{color:var(--fg);font-weight:500;cursor:pointer;border-bottom:1px dotted var(--fg-faint)}
+  .conn-row .inf{font-family:var(--mono);font-size:8.5px;letter-spacing:.3px;text-transform:uppercase;color:var(--fg-faint);border:1px solid var(--fg-faint);border-radius:4px;padding:0 3px;margin-left:4px;vertical-align:middle}
   .conn-row .vals b:hover{color:var(--accent);border-color:var(--accent)}
   .evidence{margin-top:18px;border-top:1px dashed var(--edge);padding-top:14px}
   .ev-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--fg-dim);font-size:12.5px;font-weight:500;user-select:none}
@@ -436,10 +437,14 @@ let FG = null;
 
 function indexGraph(g){
   state.byId = new Map(g.nodes.map(n=>[n.id,n]));
-  const nbr = new Map(g.nodes.map(n=>[n.id,{callsOut:[],callsIn:[],importsOut:[],importsIn:[],contains:[],container:null}]));
+  const nbr = new Map(g.nodes.map(n=>[n.id,{callsOut:[],callsIn:[],importsOut:[],importsIn:[],contains:[],container:null,inf:new Set()}]));
   for(const e of g.edges){
     if(!nbr.has(e.from)||!nbr.has(e.to)) continue;
-    if(e.kind==="calls"){ nbr.get(e.from).callsOut.push(e.to); nbr.get(e.to).callsIn.push(e.from); }
+    if(e.kind==="calls"){
+      nbr.get(e.from).callsOut.push(e.to); nbr.get(e.to).callsIn.push(e.from);
+      // record name-inferred calls so the inspector can mark them as not-proven
+      if(e.confidence==="inferred"){ nbr.get(e.from).inf.add(e.to); nbr.get(e.to).inf.add(e.from); }
+    }
     else if(e.kind==="imports"){ nbr.get(e.from).importsOut.push(e.to); nbr.get(e.to).importsIn.push(e.from); }
     else if(e.kind==="contains"){ nbr.get(e.from).contains.push(e.to); nbr.get(e.to).container=e.from; }
   }
@@ -450,7 +455,7 @@ function fgData(){
   const g = state.graph;
   const links = g.edges
     .filter(e=>state.filters[e.kind] && state.byId.has(e.from) && state.byId.has(e.to))
-    .map(e=>({ source:e.from, target:e.to, kind:e.kind, id:e.id }));
+    .map(e=>({ source:e.from, target:e.to, kind:e.kind, id:e.id, confidence:e.confidence }));
   const nodes = g.nodes.map(n=>({ id:n.id, kind:n.kind, label:n.label, ref:n }));
   return { nodes, links };
 }
@@ -470,6 +475,9 @@ function linkColor(link){
     const s = srcId(link.source), t = srcId(link.target);
     if(s!==state.selected && t!==state.selected) return dim(base);
   }
+  // name-inferred calls render MUTED (the bundled renderer has no line-dash API),
+  // so an unproven edge is visually subordinate to a resolved one.
+  if(link.confidence==="inferred") return "color-mix(in srgb,"+base+" 45%, transparent)";
   return base;
 }
 function dim(hex){ // fade a hex color toward the background for the "Learn" focus effect
@@ -524,9 +532,10 @@ function roleText(n){
 
 function connRows(n){
   const nb = state.nbr.get(n.id)||{};
-  const row = (lab, ids)=> ids && ids.length
+  const inf = nb.inf || new Set();
+  const row = (lab, ids, markInferred)=> ids && ids.length
     ? `<div class="conn-row"><span class="lab">${lab}</span><span class="vals">${
-        ids.map(id=>`<b data-goto="${id}">${esc(labelFor(id))}</b>`).join(", ")}</span></div>` : "";
+        ids.map(id=>`<b data-goto="${id}">${esc(labelFor(id))}</b>${markInferred&&inf.has(id)?`<span class="inf" title="Name-based match — a real call site to the only definition of this name, but not proven to be the callee.">inferred</span>`:""}`).join(", ")}</span></div>` : "";
   let out = "";
   if(n.kind==="file"){
     out += row("contains", nb.contains);
@@ -534,8 +543,8 @@ function connRows(n){
     out += row("imported by", nb.importsIn);
   }else{
     if(nb.container) out += row("in file", [nb.container]);
-    out += row("called by", nb.callsIn);
-    out += row("calls", nb.callsOut);
+    out += row("called by", nb.callsIn, true);
+    out += row("calls", nb.callsOut, true);
   }
   return out || `<div class="conn-row"><span class="vals" style="color:var(--fg-faint)">No resolved connections.</span></div>`;
 }
@@ -799,7 +808,7 @@ function buildFG(){
         <b>${esc(n.label)}</b><br><span style="color:#9bb0c3">${n.kind}${state.lessons.has(n.id)?" · 📘 lesson":""}</span></div>`)
     .nodeColor(nodeColor)
     .linkColor(linkColor)
-    .linkWidth(l=>l.kind==="calls"?0.8:0.5)
+    .linkWidth(l=>l.confidence==="inferred"?0.4:(l.kind==="calls"?0.8:0.5))   // inferred = thinner + muted (no line-dash API in the bundled renderer)
     .linkOpacity(0.5)
     .linkDirectionalArrowLength(l=>l.kind==="contains"?0:3)
     .linkDirectionalArrowRelPos(1)
@@ -832,7 +841,8 @@ function updateLegend(){
       <span><i style="background:var(--func)"></i><b>function</b></span>
       <span><span class="ln" style="border-color:var(--k-contains)"></span><b>contains</b></span>
       <span><span class="ln" style="border-color:var(--k-imports)"></span><b>imports</b></span>
-      <span><span class="ln" style="border-color:var(--k-calls)"></span><b>calls</b></span>`;
+      <span><span class="ln" style="border-color:var(--k-calls)"></span><b>calls</b></span>
+      <span><span class="ln" style="border-color:var(--k-calls);opacity:0.45"></span><b>calls (inferred)</b></span>`;
   }
 }
 

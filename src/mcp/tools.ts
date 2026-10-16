@@ -21,12 +21,16 @@ export class AtlasTools {
   private containerOf = new Map<string, string>();
   private findingsByNode = new Map<string, any[]>();
   private lessonByNode = new Map<string, any>();
+  private inferredCall = new Set<string>();                    // `${from}->${to}` for name-inferred calls
 
   constructor(private bundle: AtlasBundle) {
     for (const n of bundle.graph.nodes) this.byId.set(n.id, n);
     for (const s of bundle.sources ?? []) this.byPath.set(s.path, s.code);
     for (const e of bundle.graph.edges) {
-      if (e.kind === "calls") { push(this.callees, e.from, e.to); push(this.callers, e.to, e.from); }
+      if (e.kind === "calls") {
+        push(this.callees, e.from, e.to); push(this.callers, e.to, e.from);
+        if (e.confidence === "inferred") this.inferredCall.add(e.from + "->" + e.to);
+      }
       else if (e.kind === "imports") push(this.importsOut, e.from, e.to);
       else if (e.kind === "contains") this.containerOf.set(e.to, e.from);
     }
@@ -36,6 +40,14 @@ export class AtlasTools {
 
   private label = (id: string) => this.byId.get(id)?.label ?? id;
   private brief = (id: string) => { const n = this.byId.get(id); return n ? { id, label: n.label, kind: n.kind, path: n.evidence.path, line: n.evidence.line } : { id }; };
+  // A call brief that flags a name-INFERRED edge (from -> to), so an agent never
+  // treats a name-based match as a proven call.
+  // `show` is the NEIGHBOUR node to describe; `from`->`to` is the directed call
+  // edge whose confidence we check. For calls: show=callee, edge id->callee. For
+  // calledBy: show=caller, edge caller->id. (Returning brief(to) unconditionally
+  // made calledBy describe the selected node instead of its caller.)
+  private callBrief = (show: string, from: string, to: string) =>
+    this.inferredCall.has(from + "->" + to) ? { ...this.brief(show), inferred: true } : this.brief(show);
 
   overview() {
     const g = this.bundle.graph;
@@ -71,8 +83,8 @@ export class AtlasTools {
     return {
       ...this.brief(id),
       container: this.containerOf.get(id) ? this.brief(this.containerOf.get(id)!) : null,
-      calls: (this.callees.get(id) ?? []).map((x) => this.brief(x)),
-      calledBy: (this.callers.get(id) ?? []).map((x) => this.brief(x)),
+      calls: (this.callees.get(id) ?? []).map((x) => this.callBrief(x, id, x)),
+      calledBy: (this.callers.get(id) ?? []).map((x) => this.callBrief(x, x, id)),
       imports: (this.importsOut.get(id) ?? []).map((x) => this.brief(x)),
       hasSource: this.byPath.has(n.evidence.path),
       hasThreats: (this.findingsByNode.get(id)?.length ?? 0) > 0,
@@ -98,8 +110,8 @@ export class AtlasTools {
     const want = (k: string) => !kinds || kinds.includes(k);
     return {
       ...this.brief(id),
-      ...(want("calls") ? { calls: (this.callees.get(id) ?? []).map((x) => this.brief(x)) } : {}),
-      ...(want("calledBy") ? { calledBy: (this.callers.get(id) ?? []).map((x) => this.brief(x)) } : {}),
+      ...(want("calls") ? { calls: (this.callees.get(id) ?? []).map((x) => this.callBrief(x, id, x)) } : {}),
+      ...(want("calledBy") ? { calledBy: (this.callers.get(id) ?? []).map((x) => this.callBrief(x, x, id)) } : {}),
       ...(want("imports") ? { imports: (this.importsOut.get(id) ?? []).map((x) => this.brief(x)) } : {}),
     };
   }
