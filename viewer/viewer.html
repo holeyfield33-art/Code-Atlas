@@ -405,23 +405,35 @@ const state = {
 // Collapse to a file-level view automatically once the full graph gets big
 // enough that rendering/simulating every node would lag.
 const COLLAPSE_THRESHOLD = 600;
+// Hard upper bound on nodes sent to the force simulation, so neither thousands of
+// files nor one huge expanded file can flood it. Nodes beyond this are withheld
+// from the draw (still in the bundle + search), highest-degree kept first.
+const MAX_RENDER = 1200;
 
 const GRADECSS = { red:"--grade-red", lead:"--grade-lead", yellow:"--grade-yellow", green:"--grade-green", control:"--grade-control", gray:"--grade-gray" };
 const VERIFIED = g => g==="OBSERVED" || g==="TESTED";
 function gradeOf(nodeId){
   const f = state.findingByNode.get(nodeId);
+  const n = state.byId.get(nodeId);
+  const collapsedFile = !!(n && n.kind==="file" && state.detail==="files" && !state.expanded.has(nodeId));
+  // For a COLLAPSED file, a hidden member weakness must win over a direct control
+  // finding on the file — otherwise a control mapped to the file could mask a
+  // weakness in one of its hidden functions. Rank weakness severity (direct or
+  // aggregated) first; only then fall back to a direct control / blast / gray.
+  if(collapsedFile){
+    const direct = f && f.kind==="weakness" ? (VERIFIED(f.grade) ? "red" : "lead") : null;
+    const member = (state.worstByFile && state.worstByFile.get(nodeId)) || null;
+    if(direct==="red" || member==="red") return "red";
+    if(direct==="lead" || member==="lead") return "lead";
+    if(f && f.kind==="control") return "green";
+    if(state.blast.has(nodeId)) return "yellow";
+    return "gray";
+  }
   if(f){
     // green = control VERIFIED effective (OBSERVED/TESTED); control = control present but
     // unverified (STATIC/INFERRED) — a muted green, never the full hardened colour.
     if(f.kind==="control") return VERIFIED(f.grade) ? "green" : "control";
     return VERIFIED(f.grade) ? "red" : "lead";   // red = verified weakness; lead = unverified static match
-  }
-  // A COLLAPSED file surfaces the worst weakness among its hidden members, so the
-  // bounded view never hides a finding.
-  const n = state.byId.get(nodeId);
-  if(n && n.kind==="file" && state.detail==="files" && !state.expanded.has(nodeId)){
-    const w = state.worstByFile && state.worstByFile.get(nodeId);
-    if(w) return w;
   }
   if(state.blast.has(nodeId)) return "yellow";
   return "gray";
@@ -481,33 +493,50 @@ function indexGraph(g){
 // `expanded` shows that one file's members even while the rest stay collapsed.
 // Pure (no globals) so it is unit-testable.
 function collapseForDetail(nodes, edges, opts){
-  const { detail, expanded, containerOf, filters } = opts;
+  const { detail, expanded, containerOf, filters, cap } = opts;
   const fileIds = new Set(nodes.filter(n=>n.kind==="file").map(n=>n.id));
   const fileOf = id => fileIds.has(id) ? id : (containerOf.get(id) || id);
-  const visNodes = nodes.filter(n => detail==="full" || n.kind==="file" || expanded.has(fileOf(n.id)));
+  let visNodes = nodes.filter(n => detail==="full" || n.kind==="file" || expanded.has(fileOf(n.id)));
+
+  // Hard node cap: even collapsed, a repo with thousands of files (or one huge
+  // expanded file) can still flood the force simulation. When over `cap`, keep
+  // the highest-degree nodes (the structural hubs) and drop the rest; the dropped
+  // nodes stay in the bundle + search, they're just not drawn. `capped` reports
+  // how many were withheld so the UI can say so.
+  let capped = 0;
+  if(cap && visNodes.length > cap){
+    const deg = new Map();
+    const inc = id => deg.set(id, (deg.get(id)||0)+1);
+    for(const e of edges){ const a=fileOf(e.from), b=fileOf(e.to); inc(a); inc(b); }
+    // files first (they are the scaffold of the collapsed view), then by degree
+    const ranked = [...visNodes].sort((x,y)=>
+      (x.kind==="file"?0:1)-(y.kind==="file"?0:1) || (deg.get(y.id)||0)-(deg.get(x.id)||0));
+    capped = visNodes.length - cap;
+    visNodes = ranked.slice(0, cap);
+  }
   const visSet = new Set(visNodes.map(n=>n.id));
   const linkMap = new Map();
   for(const e of edges){
     if(filters && filters[e.kind]===false) continue;
     const from = visSet.has(e.from) ? e.from : fileOf(e.from);
     const to   = visSet.has(e.to)   ? e.to   : fileOf(e.to);
-    if(!visSet.has(from) || !visSet.has(to)) continue;   // no visible endpoint to attach to
+    if(!visSet.has(from) || !visSet.has(to)) continue;   // endpoint not drawn (hidden or capped)
     if(from===to) continue;                               // collapsed intra-file edge
     const aggregated = (from!==e.from) || (to!==e.to);
     const key = from+"|"+to+"|"+e.kind;
     if(!linkMap.has(key)) linkMap.set(key, { source:from, target:to, kind:e.kind, id:key, confidence: aggregated?undefined:e.confidence, aggregated });
   }
-  return { nodes: visNodes, links: [...linkMap.values()] };
+  return { nodes: visNodes, links: [...linkMap.values()], capped };
 }
 
 function fgData(){
   const g = state.graph;
   const containerOf = new Map();
   for(const [id,nb] of (state.nbr||new Map())) if(nb.container) containerOf.set(id, nb.container);
-  const { nodes:vn, links } = collapseForDetail(g.nodes, g.edges, { detail: state.detail, expanded: state.expanded, containerOf, filters: state.filters });
+  const { nodes:vn, links, capped } = collapseForDetail(g.nodes, g.edges, { detail: state.detail, expanded: state.expanded, containerOf, filters: state.filters, cap: MAX_RENDER });
   const nodes = vn.filter(n=>state.byId.has(n.id)).map(n=>({ id:n.id, kind:n.kind, label:n.label, ref:n }));
   const linkOut = links.filter(l=>state.byId.has(l.source)&&state.byId.has(l.target));
-  state.shownNodes = nodes.length;
+  state.shownNodes = nodes.length; state.capped = capped;
   return { nodes, links: linkOut };
 }
 
@@ -555,11 +584,12 @@ function syncDetailBtn(){
   const btn = document.getElementById("detailBtn"); if(!btn) return;
   const lbl = document.getElementById("detailLbl");
   const total = state.graph ? state.graph.nodes.length : 0;
-  if(lbl) lbl.textContent = (state.detail==="full" ? "Full" : "Files") + ` · ${state.shownNodes}/${total}`;
+  if(lbl) lbl.textContent = (state.detail==="full" ? "Full" : "Files") + ` · ${state.shownNodes}/${total}` + (state.capped ? ` (+${state.capped} capped)` : "");
   btn.setAttribute("aria-pressed", String(state.detail==="files"));
-  btn.title = state.detail==="files"
+  btn.title = (state.detail==="files"
     ? "Collapsed to files for a fast view — click a file to reveal its functions, or switch to Full."
-    : "Showing every node. Switch to Files for a fast, bounded view of a large repo.";
+    : "Showing every node. Switch to Files for a fast, bounded view of a large repo.")
+    + (state.capped ? ` ${state.capped} node(s) withheld from the draw (still searchable) to keep the view responsive.` : "");
 }
 function toggleDetail(){
   state.detail = state.detail==="files" ? "full" : "files";
@@ -838,7 +868,17 @@ function renderLesson(nodeId){
   });
 }
 
+// If a target is hidden in the collapsed view (a function in an unexpanded file),
+// expand its file first so search results and navigation links can actually
+// focus it instead of silently failing.
+function ensureVisible(id){
+  if(state.detail!=="files") return;
+  const n = state.byId.get(id); if(!n || n.kind==="file") return;
+  const nb = state.nbr.get(id); const file = nb && nb.container;
+  if(file && !state.expanded.has(file)){ state.expanded.add(file); render(); }
+}
 function focusNode(id){
+  ensureVisible(id);
   const d = FG.graphData();
   const node = d.nodes.find(n=>n.id===id); if(!node) return;
   const dist = 90;

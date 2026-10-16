@@ -62,6 +62,16 @@ assert.strictEqual(big.links.length, 0, "no links rendered for a fully-collapsed
 const exp = collapseForDetail(nodes, edges, { detail: "files", expanded: new Set(["F1"]), containerOf, filters });
 assert.deepStrictEqual(exp.nodes.map((n: any) => n.id).sort(), ["F1", "F2", "a", "b"], "expanding F1 reveals a,b (c stays hidden)");
 
+// HARD CAP: thousands of FILE nodes must not all render — the cap bounds the draw
+const manyFiles = []; const manyCont = new Map<string, string>();
+for (let i = 0; i < 2000; i++) manyFiles.push({ id: "F" + i, kind: "file", label: "f" + i + ".py" });
+const capped = collapseForDetail(manyFiles, [], { detail: "files", expanded: new Set(), containerOf: manyCont, filters, cap: 1200 });
+assert.strictEqual(capped.nodes.length, 1200, "2000 file nodes are capped to 1200 drawn");
+assert.strictEqual(capped.capped, 800, "the 800 withheld nodes are reported, not silently dropped");
+// and the cap is wired into the viewer
+assert.ok(/MAX_RENDER\s*=\s*\d+/.test(html), "a render cap constant is defined");
+assert.ok(/cap:\s*MAX_RENDER/.test(html), "fgData passes the cap to collapseForDetail");
+
 // source contract: a large graph defaults to the collapsed file view
 assert.ok(/COLLAPSE_THRESHOLD\s*=\s*\d+/.test(html), "a collapse threshold is defined");
 assert.ok(/state\.detail\s*=\s*norm\.graph\.nodes\.length\s*>\s*COLLAPSE_THRESHOLD\s*\?\s*"files"\s*:\s*"full"/.test(html.replace(/\s+/g, " ")),
