@@ -72,7 +72,28 @@ tests/                 schema validation + per-layer dogfood proofs
 | Ruby (`.rb .rake`) | tree-sitter | same as Python | `broken_call_edge` | Ruby pack (eval/send, system/exec, Marshal/YAML, secret handling, validation control) |
 | Vue SFC (`.vue`) | Babel (on the `<script>` block) | same as JS/TS, positions mapped to the real `.vue` | `broken_call_edge` | default rule pack |
 
-Add a language by dropping in a tree-sitter grammar wasm + its `tags.scm`.
+### Adding a language
+
+A grammar wasm and its `tags.scm` are necessary but **not sufficient** — dropping
+them in alone leaves every file of the new language counted as *unsupported* and
+ignored. A new tree-sitter language has to be wired through five points, or the
+scanner never routes a file to it:
+
+1. `src/scanner/treeScanner.ts` — add the extension regex and return the new
+   name from `fileLanguage()`, and add it to the `FileLanguage` union.
+2. `src/scanner/multilang.ts` — add the name to `SUPPORTED_LANGUAGES` (the
+   `MultiLang` type derives from it).
+3. `src/scanner/treeSitter/mapper.cjs` — add a `LANGUAGE_CONFIG` entry pointing
+   at the wasm + `tags.scm`, and a call-extraction branch alongside the existing
+   `python` / `ruby` ones (call edges are name-resolved per language).
+4. `src/build.ts` — add a `byLang` bucket and include the name in the
+   `["python", "ruby"]` language loop so its files are parsed and scanned.
+5. `src/scanner/rules.ts` — add a rule pack for the language (or it inherits no
+   native findings beyond `broken_call_edge`).
+
+Steps 1–4 are required for a graph; step 5 is required for threat rules. The
+`Supported languages` table above is the source of truth for what is currently
+wired end to end.
 
 ### Honest limits (by design, not omission)
 
