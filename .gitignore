@@ -1,35 +1,42 @@
+# Patterns with a leading `/` match only at the repo root, so a real file of the
+# same name deeper in the tree (e.g. src/tmp/, docs/notes/) stays trackable.
+
 # ---- dependencies & build output ------------------------------------------
 node_modules/
-dist/
+/dist/
 *.log
-test-records/
+/test-records/
 
 # ---- generated Code Atlas output -------------------------------------------
 # Bundles, rendered viewers, and dogfood/audit evidence from local scans
 # (GDK, Block-Wise, ...). Regenerate with `npm start -- build <repo>`.
-atlas/
-*.bundle.json
+/atlas/
+/*.bundle.json
 
 # ---- personal / local-only material: never commit --------------------------
 # Audits and dogfood logs reference local checkouts, machines, and evidence.
-docs/audits/
-docs/*dogfood*.md
-notes/
+/docs/audits/
+/docs/*dogfood*.md
+/notes/
 .env
 .env.*
-# ...but sanitized templates (placeholder values only) stay trackable
+# ...but sanitized templates (placeholder values only) stay trackable,
+# including stage-specific ones such as .env.production.example
 !.env.example
 !.env.sample
 !.env.template
+!.env.*.example
+!.env.*.sample
+!.env.*.template
 *.local.*
 .claude/settings.local.json
-.astra/
-.agent/
+/.astra/
+/.agent/
 
 # ---- agent scratch & throwaway files (see AGENTS.md) -----------------------
 .scratch/
-scratch/
-tmp/
+/scratch/
+/tmp/
 *.tmp
 *.bak
 *.orig
@@ -39,11 +46,10 @@ _repro*
 _debug*
 _scratch*
 _tmp*
-transcripts/
+# Conversation transcripts: only the dedicated folder or an explicit suffix,
+# never a basename like PROMPT*.md that a real doc could use.
+/transcripts/
 *.transcript.md
-CONVERSATION*.md
-PROMPT*.md
-SESSION*.md
 
 # ---- editor / OS ------------------------------------------------------------
 .vscode/
