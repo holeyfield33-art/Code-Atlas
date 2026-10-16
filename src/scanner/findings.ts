@@ -14,7 +14,7 @@
 import { parse } from "@babel/parser";
 import _traverse from "@babel/traverse";
 import type { AtlasGraph, Finding, AsiSnapshot } from "../schema.js";
-import { DEFAULT_RULES, type Rule } from "./rules.js";
+import { DEFAULT_RULES, compileNameMatcher, type Rule } from "./rules.js";
 import { ASI_BASE, CATEGORY_TO_AAC, asiRefFor, asiClassFor } from "./asi.js";
 import type { SourceFile } from "./graph.js";
 
@@ -52,7 +52,7 @@ function matches(when: Rule["when"], fnName: string, src: string, kind: Rule["ki
   // rule's positive calls are VALIDATORS, which are usually methods (`schema.parse(...)`,
   // `z.safeParse(...)`), so those must still match method calls.
   const freeOnly = kind === "weakness";
-  if (when.nameMatches && !new RegExp(when.nameMatches, "i").test(fnName)) return false;
+  if (when.nameMatches && !compileNameMatcher(when.nameMatches)(fnName)) return false;
   if (when.callsAny && !when.callsAny.some((n) => callsName(src, n, freeOnly))) return false;
   if (when.callsNoneOf && when.callsNoneOf.some((n) => callsName(src, n))) return false;        // guards: any call form
   if (when.guardText && when.guardText.some((t) => src.includes(t))) return false;              // keyword-arg guards
@@ -79,7 +79,7 @@ const anyCall = (tokens: string[], ruleTokens: string[]) =>
  *  do). `guardText` still checks the body text, but it only ever SUPPRESSES a
  *  finding (e.g. an explicit `SafeLoader=`), so a lenient check is conservative. */
 function matchesGeneric(when: Rule["when"], fnName: string, callTokens: string[], bodySrc: string): boolean {
-  if (when.nameMatches && !new RegExp(when.nameMatches, "i").test(fnName)) return false;
+  if (when.nameMatches && !compileNameMatcher(when.nameMatches)(fnName)) return false;
   if (when.callsAny && !anyCall(callTokens, when.callsAny)) return false;
   if (when.callsNoneOf && anyCall(callTokens, when.callsNoneOf)) return false;                  // guard CALLS
   if (when.guardText && when.guardText.some((t) => bodySrc.includes(t))) return false;          // keyword-arg guards
