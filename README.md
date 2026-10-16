@@ -21,7 +21,7 @@ node dist/cli.js build .            # scan this repo
 open atlas/viewer.html              # double-click — the 3D map + course
 ```
 
-`build` scans the repo, builds a call/import graph with Babel, generates grounded exercises, and writes:
+`build` scans the repo (JS/TS, Python, Ruby, and Vue — see **Supported languages**), builds a call/import graph, generates grounded exercises, and writes:
 
 - `atlas/atlas.bundle.json` — the graph + course, validated against the schema.
 - `atlas/viewer.html` — the 3D viewer with the bundle inlined as local data (the
@@ -46,22 +46,49 @@ open atlas/viewer.html              # double-click — the 3D map + course
 ```
 src/
   schema.ts            the bundle + course contract (Zod + types) — source of truth
+  triage.ts            finding disposition layer (confirmed / false_positive / accepted_risk)
   scanner/
     treeScanner.ts     dependency-free workspace walker
-    graph.ts           JS/TS graph builder (Babel; swappable for tree-sitter at hosting)
+    graph.ts           JS/TS graph builder (Babel)
+    multilang.ts       tree-sitter backend adapter (Python / Ruby) behind the schema seam
+    treeSitter/        vendored grammars (wasm) + tags queries + mapper
+    findings.ts        native rule engine (JS + language packs) + external-report adapter
+    rules.ts           declarative rule packs (default, Python, Ruby)
+    redact.ts          best-effort secret redaction before inlining
   generator/
     generator.ts       grounded Break & Fix generator + bundle assembler
+  mcp/                 read/triage MCP server over one bundle
   cli.ts               the `build` command
 viewer/viewer.html     the 3D viewer template (3d-force-graph, MIT)
-tests/                 schema validation + dogfood generator proof
+tests/                 schema validation + per-layer dogfood proofs
 ```
 
-## Scope (v1)
+## Supported languages
 
-JS/TS only (Babel). Defect kinds: `removed_guard`, `broken_call_edge` — the
-structure takes the other four (`swapped_condition`, `missing_import`,
-`wrong_target`, `order_violation`). Security (threat-map colors) and the
-plain-language blurb layer are reserved slots in the schema, built later.
+| Language | Backend | Graph | Course | Threat rules |
+|---|---|---|---|---|
+| JavaScript / TypeScript (`.js .jsx .ts .tsx .mjs .cjs .mts .cts`) | Babel | files, functions, `contains` / `imports` / `calls` — calls resolved via imports + same-file | `removed_guard`, `broken_call_edge` | default rule pack |
+| Python (`.py .pyi`) | tree-sitter | files, functions, classes, constants; `contains` / `imports` / `calls` | `broken_call_edge` | Python pack (code-exec, OS command, unsafe deserialization, secret handling, input-validation control) |
+| Ruby (`.rb .rake`) | tree-sitter | same as Python | `broken_call_edge` | Ruby pack (eval/send, system/exec, Marshal/YAML, secret handling, validation control) |
+| Vue SFC (`.vue`) | Babel (on the `<script>` block) | same as JS/TS, positions mapped to the real `.vue` | `broken_call_edge` | default rule pack |
+
+Add a language by dropping in a tree-sitter grammar wasm + its `tags.scm`.
+
+### Honest limits (by design, not omission)
+
+- **Non-JS call edges are resolved by NAME**, not by imports — a real call site to
+  the repo's only definition of that name. They are less precise than the JS
+  import-resolved edges; an ambiguous name (multiple definitions) is dropped to a
+  *diagnostic*, never guessed.
+- **The non-JS course emits `broken_call_edge` only.** `removed_guard` needs
+  AST-level guard detection the tree-sitter path doesn't do yet, and a paren-less
+  call (Ruby `system cmd`) can't be mutated as text so it yields no lesson.
+- **Native findings are STATIC leads** — a structural match, not proof the input is
+  attacker-controlled or the path reachable. Only `OBSERVED`/`TESTED` findings cast
+  a blast radius; a disposition (`confirmed` / `false_positive` / `accepted_risk`,
+  via `atlas_triage`) can suppress but never upgrades a grade.
+- Defect kinds reserved for later: `swapped_condition`, `missing_import`,
+  `wrong_target`, `order_violation`.
 
 ## Credits
 
@@ -87,7 +114,7 @@ Agent config:
     "args": ["--bundle", "atlas/atlas.bundle.json"] } } }
 ```
 
-Tools (all read-only):
+Tools (eight read-only; `atlas_triage` is the one write tool):
 
 | Tool | Returns |
 |---|---|
@@ -97,8 +124,9 @@ Tools (all read-only):
 | `atlas_get_source` | one node's source — pulled only when needed |
 | `atlas_neighbors` | callers / callees / imports — traverse without source |
 | `atlas_context_pack` | Horos-style: a task → the minimal source-backed set + a replayable receipt |
-| `atlas_threats` | findings (grade + ASI ref) for a node or file |
+| `atlas_threats` | findings (grade + ASI ref + any triage disposition) for a node or file |
 | `atlas_course` | the lesson + Break & Fix for a node |
+| `atlas_triage` | record a disposition on a finding (`confirmed` / `false_positive` / `accepted_risk`) — the one **write** tool; persists to the bundle, never upgrades a grade |
 
 The context saving: `search` / `get_node` / `neighbors` cost a few ids, not whole
 files; source is fetched one node at a time; `context_pack` budgets a whole task.
