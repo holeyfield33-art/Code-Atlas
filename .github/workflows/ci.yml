@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# Don't pile up runs on a branch that's still being pushed to.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     name: build + test (node ${{ matrix.node }})
@@ -28,5 +33,15 @@ jobs:
         run: npm run typecheck
       - name: Build
         run: npm run build
-      - name: Test
-        run: npm test
+      - name: Test (record output)
+        run: |
+          set -o pipefail
+          mkdir -p test-records
+          npm test 2>&1 | tee "test-records/test-node-${{ matrix.node }}.log"
+      - name: Upload test records
+        if: always()            # keep the log even when tests fail
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-records-node-${{ matrix.node }}
+          path: test-records/
+          retention-days: 14
