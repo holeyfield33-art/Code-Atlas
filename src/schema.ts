@@ -239,7 +239,9 @@ export const AtlasBundleSchema = z.object({
   blurbs: z.array(NodeBlurbSchema).optional(),      // RESERVED
   findings: z.array(FindingSchema).optional(),      // Security layer (absent => all GRAY)
   asiSnapshot: AsiSnapshotSchema.optional(),        // pinned ASI classes referenced by findings
-  sources: z.array(z.object({ path: z.string(), code: z.string() })).optional(), // inlined source for the viewer (offline)
+  // inlined source for the viewer (offline). `truncated`: only a prefix of the file
+  // is inlined (the build caps size), so nodes past the cap have no inlined source.
+  sources: z.array(z.object({ path: z.string(), code: z.string(), truncated: z.boolean().optional() })).optional(),
   // Scan-coverage accounting: every omitted file counted by reason, so the map's
   // completeness is auditable (absent on bundles built before this layer existed).
   coverage: z.object({

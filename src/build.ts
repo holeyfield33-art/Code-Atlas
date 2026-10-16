@@ -16,7 +16,7 @@ import { buildMultiLangGraph, type MultiLang } from "./scanner/multilang.js";
 import { generateCourse, assembleBundle } from "./generator/generator.js";
 import type { AtlasGraph, AtlasBundle } from "./schema.js";
 
-export interface BuildOptions { product?: string; rules?: string; findingsReport?: string; security?: boolean; maxFiles?: number; maxBytes?: number; }
+export interface BuildOptions { product?: string; rules?: string; findingsReport?: string; security?: boolean; maxFiles?: number; maxBytes?: number; repoLabel?: string; }
 export interface BuildResult {
   bundle: AtlasBundle;
   langSummary: string;
@@ -52,7 +52,7 @@ function mergeAsi(a: any, b: any): any {
 export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Promise<BuildResult> {
   const product = opts.product ?? "Code Atlas";
   const root = resolve(rootInput);
-  const label = basename(root);
+  const label = opts.repoLabel ?? basename(root);
   const revision = label + "@" + new Date().toISOString().slice(0, 10);
 
   const scanned = scanWorkspace(root, { maxFiles: opts.maxFiles, maxBytes: opts.maxBytes });
@@ -134,10 +134,14 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
   let redactionCount = 0;
   const inlined = scanned.files.map((f) => {
     const raw = readSource(f.absolutePath);
-    const capped = raw.length > MAX_SRC ? raw.slice(0, MAX_SRC) + "\n/* … truncated … */" : raw;
+    // Cut at a line boundary so every inlined line is a whole source line; record
+    // the truncation so consumers can say "not inlined" instead of returning "".
+    const truncated = raw.length > MAX_SRC;
+    const cut = raw.lastIndexOf("\n", MAX_SRC);
+    const capped = truncated ? raw.slice(0, cut > 0 ? cut : MAX_SRC) : raw;
     const { code, redactions } = redactSecrets(capped);
     redactionCount += redactions;
-    return { path: f.relativePath, code };
+    return truncated ? { path: f.relativePath, code, truncated } : { path: f.relativePath, code };
   });
 
   const bundle = assembleBundle(graph, course, { product, repoLabel: label }, security, inlined, scanned.coverage);

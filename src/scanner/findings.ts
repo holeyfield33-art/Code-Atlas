@@ -46,11 +46,14 @@ const callsName = (src: string, name: string, freeOnly = false) =>
  *  pattern match is itself a fabrication, which the grounding invariant forbids. */
 const castsBlast = (g: string) => g === "OBSERVED" || g === "TESTED";
 
-function matches(when: Rule["when"], fnName: string, src: string, kind: Rule["kind"]): boolean {
+function matches(when: Rule["when"], fnName: string, rawSrc: string, kind: Rule["kind"]): boolean {
   // A WEAKNESS rule's positive calls are SINKS: match free/imported calls only, so a
   // method like `re.exec(...)` / `arr.query(...)` can't masquerade as a sink. A CONTROL
   // rule's positive calls are VALIDATORS, which are usually methods (`schema.parse(...)`,
   // `z.safeParse(...)`), so those must still match method calls.
+  // `JSON.parse` deserializes; it validates nothing. Mask it so it can neither count
+  // as an input-validation control nor suppress a sink finding as a "guard".
+  const src = rawSrc.replace(/\bJSON\.parse(\s*\()/g, "JSON_parse$1");
   const freeOnly = kind === "weakness";
   if (when.nameMatches && !compileNameMatcher(when.nameMatches)(fnName)) return false;
   if (when.callsAny && !when.callsAny.some((n) => callsName(src, n, freeOnly))) return false;
@@ -62,14 +65,19 @@ function matches(when: Rule["when"], fnName: string, src: string, kind: Rule["ki
 }
 
 /** Does a tree-sitter-captured qualified call token match a rule token?
+ *  - `*.name` matches `name` on ANY receiver (or none): for methods such as
+ *    `obj.send`, `params.permit`, `cmd.shellescape`.
  *  - a QUALIFIED rule token (`os.system`, `Marshal.load`) matches the same token
  *    or a deeper-receiver form ending in `.os.system`, but NOT an unrelated
  *    `foo.run` for `subprocess.run` — precision is kept.
- *  - a BARE rule token (`eval`, `system`) matches by LAST SEGMENT, so it matches
- *    both `eval` and `Kernel.system`. */
+ *  - a BARE rule token (`eval`, `system`) matches only the receiverless call or
+ *    its explicit builtin form (`Kernel.system`, `builtins.eval`) — never an
+ *    unrelated method that shares the name (`re.compile`, `conn.exec`). */
+const BUILTIN_RECEIVERS = ["Kernel", "builtins"];
 function callTokenMatches(callToken: string, ruleToken: string): boolean {
+  if (ruleToken.startsWith("*.")) return (callToken.split(".").pop() || callToken) === ruleToken.slice(2);
   if (ruleToken.includes(".")) return callToken === ruleToken || callToken.endsWith("." + ruleToken);
-  return (callToken.split(".").pop() || callToken) === ruleToken;
+  return callToken === ruleToken || BUILTIN_RECEIVERS.some((r) => callToken === r + "." + ruleToken);
 }
 const anyCall = (tokens: string[], ruleTokens: string[]) =>
   ruleTokens.some((rt) => tokens.some((ct) => callTokenMatches(ct, rt)));

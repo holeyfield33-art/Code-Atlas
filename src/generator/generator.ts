@@ -110,7 +110,7 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
  *  so the `includes` check reliably fails on the broken answer. */
 const callSiteRe = (name: string) => new RegExp("(?<![\\w.$])" + escapeRe(name) + "\\(", "g");
 
-function makeBrokenCallEdge(callerName: string, body: string, calleeName: string): BreakAndFix | null {
+function makeBrokenCallEdge(callerName: string, body: string, calleeName: string, file = ""): BreakAndFix | null {
   const solution = body;
   const callPattern = calleeName + "(";
   const m = callSiteRe(calleeName).exec(solution);
@@ -124,9 +124,17 @@ function makeBrokenCallEdge(callerName: string, body: string, calleeName: string
   // the body start, where no such ambiguity exists.
   const lead = m.index > 0 ? body[m.index - 1] : "";
   const includeVal = lead + callPattern;
+  // The repair must happen AT the real call site: require the original line that
+  // carried the call (code only, comments stripped), not just the token anywhere.
+  const lineStart = body.lastIndexOf("\n", m.index) + 1;
+  const lineEnd = body.indexOf("\n", m.index);
+  const callLine = codeOnly(body.slice(lineStart, lineEnd < 0 ? body.length : lineEnd), file).trim();
   const checks: Check[] = [
     { kind: "includes", value: includeVal, message: "Call `" + calleeName + "(...)` — the real function." },
     { kind: "excludes", value: calleeName + "__removed(", message: "Remove the bogus `" + calleeName + "__removed` call." },
+    ...(callLine && callLine !== includeVal.trim()
+      ? [{ kind: "includes" as const, value: callLine, message: "Restore the call where it was: `" + callLine + "`." }]
+      : []),
   ];
   return {
     nodeRef: "",
@@ -138,8 +146,15 @@ function makeBrokenCallEdge(callerName: string, body: string, calleeName: string
   } as BreakAndFix;
 }
 
-function detectBrokenCallEdge(caller: FnSite, code: string, calleeName: string): BreakAndFix | null {
-  return makeBrokenCallEdge(caller.name, code.slice(caller.start, caller.end), calleeName);
+function detectBrokenCallEdge(caller: FnSite, code: string, calleeName: string, file: string): BreakAndFix | null {
+  return makeBrokenCallEdge(caller.name, code.slice(caller.start, caller.end), calleeName, file);
+}
+
+/** A lesson ships only if its own checks are honest on its own material: the real
+ *  solution passes, and the broken variant fails. Anything else (e.g. a comment
+ *  stripper that misreads an exotic literal) is dropped, never shipped. */
+function gradesHonestly(bf: BreakAndFix): boolean {
+  return runChecks(bf.solution, bf.checks, bf.file).length === 0 && runChecks(bf.broken, bf.checks, bf.file).length > 0;
 }
 
 /** Plain-language teach line, grounded in the node's real neighbours. */
@@ -180,6 +195,7 @@ export function generateCourse(graph: AtlasGraph, sources: SourceFile[], opts: G
       // the exercise's grounding, so a secret-bearing function gets no lesson.
       if (redactSecrets(bf.solution).redactions > 0) continue;
       bf.nodeRef = node.id; bf.file = node.evidence.path; bf.provenance.revision = node.evidence.revision;
+      if (!gradesHonestly(bf)) continue;
       lessons.push({
         id: "l_guard_" + node.id, moduleId: "mod-01", title: "Restore the guard in " + node.label,
         nodeRefs: [node.id], teach: teachFor(node.id, graph), concepts: ["validation", "fail-closed"], breakAndFix: bf,
@@ -198,10 +214,11 @@ export function generateCourse(graph: AtlasGraph, sources: SourceFile[], opts: G
       if (!code) continue;
       const fn = functionsIn(code).find((f) => f.name === caller.label);
       if (!fn) continue;
-      const bf = detectBrokenCallEdge(fn, code, callee.label);
+      const bf = detectBrokenCallEdge(fn, code, callee.label, caller.evidence.path);
       if (!bf) continue;
       if (redactSecrets(bf.solution).redactions > 0) continue; // never serialize a lesson built from secret-bearing source
       bf.nodeRef = caller.id; bf.file = caller.evidence.path; bf.provenance.revision = caller.evidence.revision;
+      if (!gradesHonestly(bf)) continue;
       lessons.push({
         id: "l_call_" + edge.id.replace(/[^a-z0-9]/gi, "_"), moduleId: "mod-01",
         title: caller.label + " → " + callee.label, nodeRefs: [caller.id, callee.id],
@@ -212,39 +229,38 @@ export function generateCourse(graph: AtlasGraph, sources: SourceFile[], opts: G
 
   // broken_call_edge for NON-JS functions, from tree-sitter body slices (no AST).
   // A lesson's callee must be (a) PARSED as a real call in the caller's body
-  // (genericCalls — so a name in a string/comment never qualifies) AND (b) present
-  // as a literal `callee(` call site so the text can be mutated. We do not rely on
-  // the calls edge's origin, which some tree-sitter backends attribute to the file.
+  // (genericCalls — so a name in a string/comment never qualifies), (b) present
+  // as a literal `callee(` call site so the text can be mutated, AND (c) the
+  // target of a real `calls` edge from this caller, so the lesson never claims a
+  // caller→callee relationship the graph itself does not contain.
   // Same grounding as the Babel path: solution is the real body, the break renames
   // a real callee, checks fail on broken / pass on solution.
   if (wanted.has("broken_call_edge") && opts.genericBodies && opts.genericBodies.size) {
     const fnById = new Map(funcNodes.map((n) => [n.id, n]));
-    const calleeNames = [...new Set(funcNodes.map((n) => n.label))];
     const lastSeg = (t: string) => t.split(".").pop() || t;
+    const calleesOf = new Map<string, string[]>();
+    for (const e of graph.edges) if (e.kind === "calls") calleesOf.set(e.from, [...(calleesOf.get(e.from) ?? []), e.to]);
     for (const [callerId, body] of opts.genericBodies) {
       if (lessons.length >= max) break;
       const caller = fnById.get(callerId);
       if (!caller) continue;
       // parsed call tokens for this caller (last segment = bare callee name)
       const parsed = new Set((opts.genericCalls?.get(callerId) ?? []).map(lastSeg));
-      // a known function (not the caller itself) that is BOTH really called (parsed)
-      // and present as a literal `callee(` site we can mutate.
-      const calleeName = calleeNames.find((lbl) => lbl !== caller.label && parsed.has(lbl) && callSiteRe(lbl).test(body));
-      if (!calleeName) continue;
-      // Resolve the callee NODE within the caller's own file; only fall back to a
-      // repo-wide match when it is unambiguous. Otherwise attach just the caller,
-      // so we never teach a cross-file/cross-language edge that does not exist.
-      const all = funcNodes.filter((n) => n.label === calleeName);
-      const callee = all.find((n) => n.evidence.path === caller.evidence.path) ?? (all.length === 1 ? all[0] : undefined);
-      const bf = makeBrokenCallEdge(caller.label, body, calleeName);
+      // a resolved callee (not the caller itself) that is BOTH really called
+      // (parsed) and present as a literal `callee(` site we can mutate.
+      const callee = (calleesOf.get(callerId) ?? []).map((id) => fnById.get(id))
+        .find((n) => n && n.label !== caller.label && parsed.has(n.label) && callSiteRe(n.label).test(body));
+      if (!callee) continue;
+      const bf = makeBrokenCallEdge(caller.label, body, callee.label, caller.evidence.path);
       if (!bf) continue;
       if (redactSecrets(bf.solution).redactions > 0) continue;  // never serialize a lesson built from secret-bearing source
       bf.nodeRef = caller.id; bf.file = caller.evidence.path; bf.provenance.revision = caller.evidence.revision;
+      if (!gradesHonestly(bf)) continue;
       const id = "l_callg_" + callerId.replace(/[^a-z0-9]/gi, "_");
       if (lessons.some((l) => l.id === id)) continue;           // dedup
       lessons.push({
-        id, moduleId: "mod-01", title: caller.label + " → " + calleeName,
-        nodeRefs: callee ? [caller.id, callee.id] : [caller.id],
+        id, moduleId: "mod-01", title: caller.label + " → " + callee.label,
+        nodeRefs: [caller.id, callee.id],
         teach: teachFor(caller.id, graph), concepts: ["call graph"], breakAndFix: bf,
       });
     }
@@ -288,16 +304,63 @@ export function assembleBundle(graph: AtlasGraph, course: Course, opts: GenOptio
  *  The generator only ever emits `includes`/`excludes` checks, so disabling the
  *  `regex` kind at runtime costs no generated content and removes the surface
  *  entirely. A regex check reports as unmet with a clear message rather than run.
- *  includes/excludes evaluate over the FULL answer. */
-export function runChecks(code: string, checks: Check[]): string[] {
+ *  includes/excludes evaluate over the answer's CODE: when `file` names the
+ *  language, comments are stripped first, so an answer that merely mentions the
+ *  fix in a comment does not pass. Still a structure check, not a behaviour proof. */
+export function runChecks(code: string, checks: Check[], file = ""): string[] {
   const fails: string[] = [];
+  const body = codeOnly(code, file);
   for (const c of checks) {
     if (c.kind === "regex") { fails.push("Regex checks are disabled in this build for safety."); continue; }
     let ok = true;
-    if (c.kind === "includes") ok = code.includes(c.value);
-    else if (c.kind === "excludes") ok = !code.includes(c.value);
+    if (c.kind === "includes") ok = body.includes(c.value);
+    else if (c.kind === "excludes") ok = !body.includes(c.value);
     else if (c.kind === "structure") ok = true; // delegated to Block-Wise conformance in full build
     if (!ok) fails.push(c.message);
   }
   return fails;
+}
+
+/** The answer with comments removed (newlines kept), for a language inferred from
+ *  `file`: `#` (+ Ruby `=begin`/`=end`) for Python/Ruby, `//` and block comments
+ *  otherwise. Quote-aware, so a `#{…}` interpolation or a `//` inside a string
+ *  survives. Unknown language (no file) → the text unchanged. Mirrored in the
+ *  viewer's `codeOnly`; keep the two in sync. */
+export function codeOnly(code: string, file = ""): string {
+  if (!file) return code;
+  const hash = /\.(?:py|pyi|rb|rake)$/i.test(file);
+  const ruby = /\.(?:rb|rake)$/i.test(file);
+  const blank = (s: string) => s.replace(/[^\n]/g, "");
+  let out = "";
+  let quote: string | null = null;
+  for (let i = 0; i < code.length; i++) {
+    const c = code[i];
+    if (c === "\\" && i + 1 < code.length) { out += c + code[++i]; continue; }      // escaped char, in or out of a string
+    if (quote) { out += c; if (c === quote) quote = null; continue; }
+    if (c === '"' || c === "'" || (!hash && c === "`")) { quote = c; out += c; continue; }
+    const lineComment = hash ? c === "#" : (c === "/" && code[i + 1] === "/");
+    if (lineComment) {
+      const nl = code.indexOf("\n", i);
+      if (nl < 0) break;
+      i = nl - 1;                                                               // the newline itself is kept
+      continue;
+    }
+    if (!hash && c === "/" && code[i + 1] === "*") {
+      const end = code.indexOf("*/", i + 2);
+      const stop = end < 0 ? code.length : end + 2;
+      out += blank(code.slice(i, stop));
+      i = stop - 1;
+      continue;
+    }
+    if (ruby && c === "=" && (i === 0 || code[i - 1] === "\n") && code.startsWith("=begin", i)) {
+      const end = code.indexOf("\n=end", i);
+      const eol = end < 0 ? -1 : code.indexOf("\n", end + 1);
+      const stop = end < 0 || eol < 0 ? code.length : eol;
+      out += blank(code.slice(i, stop));
+      i = stop - 1;
+      continue;
+    }
+    out += c;
+  }
+  return out;
 }
