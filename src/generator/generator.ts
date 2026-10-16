@@ -145,10 +145,16 @@ function detectBrokenCallEdge(caller: FnSite, code: string, calleeName: string):
 /** Plain-language teach line, grounded in the node's real neighbours. */
 function teachFor(nodeId: string, graph: AtlasGraph): string {
   const n = graph.nodes.find((x) => x.id === nodeId)!;
-  const callers = graph.edges.filter((e) => e.kind === "calls" && e.to === nodeId).length;
-  const callees = graph.edges.filter((e) => e.kind === "calls" && e.from === nodeId).length;
+  const touching = graph.edges.filter((e) => e.kind === "calls" && (e.to === nodeId || e.from === nodeId));
+  const callers = touching.filter((e) => e.to === nodeId).length;
+  const callees = touching.filter((e) => e.from === nodeId).length;
+  const inferred = touching.filter((e) => e.confidence === "inferred").length;
   let s = "`" + n.label + "` is a " + n.kind + " in " + n.evidence.path + ".";
   if (callers || callees) s += " It is called by " + callers + " place" + (callers === 1 ? "" : "s") + " and calls " + callees + " other function" + (callees === 1 ? "" : "s") + ".";
+  // Name-inferred calls (Python/Ruby) are counted, but never stated as proven.
+  if (inferred) s += inferred === touching.length
+    ? " These calls are matched by name only, not proven."
+    : " " + inferred + " of these calls are matched by name only, not proven.";
   return s;
 }
 

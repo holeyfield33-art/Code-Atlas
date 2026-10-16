@@ -42,4 +42,22 @@ assert.ok(/GRADECSS\s*=\s*\{[^}]*control:\s*"--grade-control"/.test(html), "GRAD
 assert.ok(/--grade-control:/.test(html), "the muted control colour is defined");
 assert.ok(/GRADE_LABEL\s*=\s*\{[^}]*control:\s*"CONTROL \(UNVERIFIED\)"/.test(html), "unverified control has an honest label");
 
+// Behavioural, not just source-shape: run the real gradeOf() in BOTH detail modes.
+// The collapsed file view (the default for large repos) must apply the same gate.
+const grab = (re: RegExp) => { const m = re.exec(html); assert.ok(m, "found " + re.source.slice(0, 30)); return m![0]; };
+const gradeSrc = [grab(/const VERIFIED = [^\n]*/), grab(/function gradeOf\(nodeId\)\{[\s\S]*?\n\}/)].join("\n");
+// eslint-disable-next-line no-new-func
+const makeGrade = new Function("state", gradeSrc + "; return gradeOf;") as (state: any) => (id: string) => string;
+for (const detail of ["full", "files"]) for (const [grade, want] of [["STATIC", "control"], ["INFERRED", "control"], ["TESTED", "green"]]) {
+  const gradeOf = makeGrade({ findingByNode: new Map([["F", { kind: "control", grade, nodeRefs: ["F"] }]]),
+    byId: new Map([["F", { id: "F", kind: "file" }]]), detail, expanded: new Set(), worstByFile: new Map(), blast: new Set() });
+  assert.strictEqual(gradeOf("F"), want, `${detail} view: a ${grade} control on a file is '${want}'`);
+}
+
+// The inspector's plain-language line never states name-inferred calls as proven.
+// eslint-disable-next-line no-new-func
+const plainText = new Function("state", "labelFor", grab(/function plainText\(n\)\{[\s\S]*?\n\}/) + "; return plainText;")(
+  { nbr: new Map([["fn", { callsIn: ["c"], callsOut: ["d"], inf: new Set(["c", "d"]), container: null }]]) }, (id: string) => id) as (n: any) => string;
+assert.match(plainText({ id: "fn", kind: "function" }), /matched by name only, not proven/, "inferred calls are flagged in the plain-language summary");
+
 console.log("viewer-security.test: esc neutralizes attr breakout; all data-goto ids escaped; unverified controls are not hardened-green");

@@ -425,7 +425,7 @@ function gradeOf(nodeId){
     const member = (state.worstByFile && state.worstByFile.get(nodeId)) || null;
     if(direct==="red" || member==="red") return "red";
     if(direct==="lead" || member==="lead") return "lead";
-    if(f && f.kind==="control") return "green";
+    if(f && f.kind==="control") return VERIFIED(f.grade) ? "green" : "control";  // same evidence gate as the full view
     if(state.blast.has(nodeId)) return "yellow";
     return "gray";
   }
@@ -615,7 +615,13 @@ function plainText(n){
   const cin=(nb.callsIn||[]).length, cout=(nb.callsOut||[]).length;
   const where = nb.container ? ` in ${labelFor(nb.container)}` : "";
   let s = `This is a function${where}.`;
-  if(cin||cout) s += ` It is called by ${cin} place${cin===1?"":"s"} and calls ${cout} other function${cout===1?"":"s"}.`;
+  if(cin||cout){
+    s += ` It is called by ${cin} place${cin===1?"":"s"} and calls ${cout} other function${cout===1?"":"s"}.`;
+    // name-inferred calls are counted, but never stated as proven
+    const inf = nb.inf || new Set();
+    const ninf = [...(nb.callsIn||[]), ...(nb.callsOut||[])].filter(id=>inf.has(id)).length;
+    if(ninf) s += ninf===cin+cout ? ` These calls are matched by name only, not proven.` : ` ${ninf} of these calls are matched by name only, not proven.`;
+  }
   else s += ` No call relationships were resolved for it.`;
   return s;
 }
