@@ -135,7 +135,7 @@ Agent config:
     "args": ["--bundle", "atlas/atlas.bundle.json"] } } }
 ```
 
-Tools (eight read-only; `atlas_triage` is the one write tool):
+Tools (nine read-only; `atlas_triage` is the one write tool):
 
 | Tool | Returns |
 |---|---|
@@ -147,7 +147,36 @@ Tools (eight read-only; `atlas_triage` is the one write tool):
 | `atlas_context_pack` | Horos-style: a task → the minimal source-backed set + a replayable receipt |
 | `atlas_threats` | findings (grade + ASI ref + any triage disposition) for a node or file |
 | `atlas_course` | the lesson + Break & Fix for a node |
+| `atlas_exec` | run JS against a frozen read-only `atlas` API in a sandboxed isolate — one programmable tool for any filter/join/aggregate (see below) |
 | `atlas_triage` | record a disposition on a finding (`confirmed` / `false_positive` / `accepted_risk`) — the one **write** tool; persists to the bundle, never upgrades a grade |
 
 The context saving: `search` / `get_node` / `neighbors` cost a few ids, not whole
 files; source is fetched one node at a time; `context_pack` budgets a whole task.
+
+### `atlas_exec` — one programmable read tool (experimental)
+
+The fixed tools above each spend schema tokens whether used or not, and can't do a
+query nobody pre-wrote. `atlas_exec` is the alternative: **one** tool that takes
+JavaScript and runs it against a frozen, read-only `atlas` API (`overview`,
+`search`, `getNode`, `getSource`, `neighbors`, `contextPack`, `threats`, `course`),
+so an agent writes the exact filter/join/aggregate it needs in a single call and
+`return`s the result.
+
+```js
+// "which entry points carry the most findings?" — one call, no fixed tool for it
+const ov = atlas.overview();
+return ov.entryPoints
+  .map(e => ({ id: e.id, threats: atlas.threats(e.id).findings.length }))
+  .sort((a, b) => b.threats - a.threats).slice(0, 5);
+```
+
+The security is the jail, not the API's shape. Code runs in a V8 isolate
+(`isolated-vm`) with a separate heap and **no** Node bindings — `require`,
+`import`, `process`, `fetch`, timers and the host scope do not exist inside it.
+The only capability handed in is the `atlas` read API; the host reference behind
+it is consumed by a trusted bootstrap and never reachable from agent code, every
+host call is checked against a read-only allowlist (there is **no** write path —
+`atlas_triage` is not reachable here), all data crosses as JSON, and a wall-clock
+timeout plus a memory cap bound every run. Each run returns a replayable receipt
+(`sha256` of selector + code + bundle), so the same query over the same bundle is
+reproducible — the grounding guarantee, extended to free-form reads.
