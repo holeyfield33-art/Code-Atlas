@@ -1,4 +1,45 @@
+# ---- dependencies & build output ------------------------------------------
 node_modules/
 dist/
-atlas/
 *.log
+test-records/
+
+# ---- generated Code Atlas output -------------------------------------------
+# Bundles, rendered viewers, and dogfood/audit evidence from local scans
+# (GDK, Block-Wise, ...). Regenerate with `npm start -- build <repo>`.
+atlas/
+*.bundle.json
+
+# ---- personal / local-only material: never commit --------------------------
+# Audits and dogfood logs reference local checkouts, machines, and evidence.
+docs/audits/
+docs/*dogfood*.md
+notes/
+.env
+.env.*
+*.local.*
+.claude/settings.local.json
+.astra/
+.agent/
+
+# ---- agent scratch & throwaway files (see AGENTS.md) -----------------------
+.scratch/
+scratch/
+tmp/
+*.tmp
+*.bak
+*.orig
+scripts/_*
+tests/_*
+src/**/_*
+transcripts/
+*.transcript.md
+CONVERSATION*.md
+PROMPT*.md
+SESSION*.md
+
+# ---- editor / OS ------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
