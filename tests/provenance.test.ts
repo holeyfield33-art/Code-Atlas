@@ -100,6 +100,11 @@ if (linked) {
   assert.ok(lstatSync(linkFile).isSymbolicLink(), "the link is still a symlink, not replaced by a regular file");
 }
 
+// bundle identity covers scan coverage (overview() exposes it)
+const covA = structuredClone(bundle), covB = structuredClone(bundle);
+(covB as any).coverage = { ...(covB.coverage ?? { scannedFiles: 0, totalFilesSeen: 0, maxFiles: 0, maxBytes: 0, skipped: {} }), scannedFiles: 12345 };
+assert.notStrictEqual(new AtlasTools(covA).bundleHash, new AtlasTools(covB).bundleHash, "a different coverage changes the bundle hash");
+
 // ---- P2: UTF-8 byte cap -------------------------------------------------------
 const tools = new AtlasTools(bundle);
 const limits = { timeoutMs: 2000, memoryMb: 128, maxCodeChars: 20_000, maxResultBytes: 100_000 };

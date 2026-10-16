@@ -7,6 +7,8 @@
  *  - writeSync may write FEWER bytes than requested without throwing (e.g. a nearly
  *    full disk), so we loop until every byte is written and abort before the rename
  *    if no progress is made.
+ *  - After the rename the parent directory is fsynced (POSIX), so a reported success
+ *    survives power loss.
  *  - If `path` is a symlink, the REAL target is replaced and the link is left in
  *    place (renaming over the link would turn it into a regular file and leave the
  *    file it points at stale).
@@ -31,6 +33,14 @@ export function writeFully(fd: number, buf: Buffer, write: typeof writeSync = wr
   }
 }
 
+/** fsync a directory so a rename inside it survives power loss. POSIX only: Windows
+ *  cannot open a directory for fsync, and NTFS journals the rename. */
+function fsyncDir(dir: string): void {
+  if (process.platform === "win32") return;
+  const fd = openSync(dir, "r");
+  try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+
 export function writeFileAtomic(linkPath: string, data: string, write: typeof writeSync = writeSync): void {
   let path = linkPath;
   try { path = realpathSync(linkPath); } catch { /* does not exist yet: write the path as given */ }
@@ -46,6 +56,7 @@ export function writeFileAtomic(linkPath: string, data: string, write: typeof wr
     fsyncSync(fd);
     closeSync(fd); fd = undefined;
     renameSync(tmp, path);
+    fsyncDir(dirname(path));                                      // make the rename itself durable
   } catch (e) {
     if (fd !== undefined) { try { closeSync(fd); } catch { /* already closed */ } }
     try { unlinkSync(tmp); } catch { /* temp already gone */ }
