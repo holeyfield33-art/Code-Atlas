@@ -12,7 +12,7 @@ import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 import { parseBundle } from "../src/schema.js";
 import { makeCtx } from "../src/mcp/server.js";
-import { isValidBearerToken, hostnameOf, httpOptionsFromArgs, startHttpServer } from "../src/mcp/http.js";
+import { isValidBearerToken, hostnameOf, httpOptionsFromArgs, startHttpServer, WindowCounter } from "../src/mcp/http.js";
 
 const apiKey = "0123456789abcdef0123456789abcdef";
 const bundle = parseBundle({
@@ -39,6 +39,19 @@ assert.strictEqual(parsed.port, 9000);
 assert.strictEqual(parsed.allowTriage, true);
 assert.deepStrictEqual(parsed.allowedOrigins, ["https://a.example"]);
 assert.strictEqual(httpOptionsFromArgs(["--http"], { ATLAS_MCP_API_KEY: apiKey }).allowTriage, false, "triage is off unless asked");
+
+// ---- the rate-limit table is bounded (many distinct source addresses cannot grow it)
+{
+  const wc = new WindowCounter(5, 60_000, 100);
+  for (let i = 0; i < 1000; i++) wc.over("10.0." + Math.floor(i / 250) + "." + (i % 250), 1000 + i);
+  assert.ok(wc.size <= 100, "entries never exceed maxEntries (got " + wc.size + ")");
+  assert.strictEqual(wc.over("same", 5000), false);
+  for (let i = 0; i < 5; i++) wc.over("same", 5001 + i);
+  assert.ok(wc.reached("same", 5010), "an active client is still counted and limited");
+  const t0 = Date.now(); const big = new WindowCounter(5, 60_000, 10_000);
+  for (let i = 0; i < 50_000; i++) big.over("k" + i, 1000);
+  assert.ok(big.size <= 10_000 && Date.now() - t0 < 3000, "50,000 distinct clients stay bounded and fast (O(1) per insert)");
+}
 
 // ---- startup refusals
 await assert.rejects(startHttpServer(ctx(), { apiKey: "too-short" }), /at least 32 characters/);

@@ -61,24 +61,41 @@ export function hostnameOf(hostHeader: string | undefined): string | null {
   return m ? m[1] : null;
 }
 
-/** Fixed-window per-client counters (in memory; one process). */
-class WindowCounter {
+/** Fixed-window per-client counters (in memory; one process). Memory and CPU are
+ *  bounded no matter how many distinct source addresses an unauthenticated caller
+ *  uses: at most `maxEntries` clients are tracked (oldest evicted first, O(1)), and
+ *  expired entries are swept at most once per second instead of on every insert. */
+export class WindowCounter {
   private hits = new Map<string, { start: number; n: number }>();
-  constructor(private limit: number, private windowMs = 60_000) {}
+  private lastSweep = 0;
+  constructor(private limit: number, private windowMs = 60_000, private maxEntries = 10_000) {}
+  get size(): number { return this.hits.size; }
   /** Count one event; true when the client is now OVER the limit. */
   over(key: string, now = Date.now()): boolean {
-    if (this.hits.size > 10_000) this.prune(now);
     const e = this.hits.get(key);
-    if (!e || now - e.start >= this.windowMs) { this.hits.set(key, { start: now, n: 1 }); return this.limit < 1; }
-    e.n += 1;
-    return e.n > this.limit;
+    if (e && now - e.start < this.windowMs) { e.n += 1; return e.n > this.limit; }
+    if (e) this.hits.delete(key);                                  // expired: restart (re-inserted at the end)
+    this.makeRoom(now);
+    this.hits.set(key, { start: now, n: 1 });
+    return this.limit < 1;
   }
   /** Has the client USED UP its allowance (limit events counted), without counting? */
   reached(key: string, now = Date.now()): boolean {
     const e = this.hits.get(key);
     return !!e && now - e.start < this.windowMs && e.n >= this.limit;
   }
-  private prune(now: number) { for (const [k, e] of this.hits) if (now - e.start >= this.windowMs) this.hits.delete(k); }
+  private makeRoom(now: number): void {
+    if (this.hits.size < this.maxEntries) return;
+    if (now - this.lastSweep >= 1000) {                            // sweep expired entries, at most once a second
+      this.lastSweep = now;
+      for (const [k, e] of this.hits) if (now - e.start >= this.windowMs) this.hits.delete(k);
+    }
+    while (this.hits.size >= this.maxEntries) {                    // still full: evict the oldest insertion
+      const oldest = this.hits.keys().next();
+      if (oldest.done) break;
+      this.hits.delete(oldest.value);
+    }
+  }
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown, extra: Record<string, string> = {}): void {
