@@ -232,8 +232,7 @@ export class AtlasTools {
     // ranked selection (the list itself is not repeated, to keep the response bounded).
     const receipt = { task, selector: "atlas-ctx-v2", budgetTokens, bundleHash: this.bundleHash,
       candidates: ranked.length, selectedCount: selected.length,
-      selectionHash: sha(selected.map((s) => s.id).join("
-")), sourceIncluded: included.map((i) => i.id),
+      selectionHash: sha(selected.map((s) => s.id).join("\n")), sourceIncluded: included.map((i) => i.id),
       sourceHash: sha(JSON.stringify(included.map((i) => [i.id, i.source]))) };
     return { task, selected, sourceIncluded: included, omitted: ranked.length - selected.length,
       budget: { tokens: budgetTokens, approxTokensUsed: Math.ceil(used / 4) },
