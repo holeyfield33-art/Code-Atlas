@@ -11,12 +11,14 @@
  *       "args": ["--bundle", "atlas.bundle.json"] } } }
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { parseBundle, type AtlasBundle } from "../schema.js";
 import { AtlasTools } from "./tools.js";
 import { applyDisposition, DISPOSITION_STATUSES } from "../triage.js";
+import { runAtlasExec } from "./sandbox.js";
 
 function bundlePath(argv: string[]): string {
   const i = argv.indexOf("--bundle");
@@ -33,12 +35,22 @@ const RO = { readOnlyHint: true, openWorldHint: false };
  *  `path` of null means in-memory only (tests) — triage still works, just no write. */
 export interface AtlasCtx {
   tools: AtlasTools;
+  /** Stable id of the loaded bundle, for replayable receipts. */
+  bundleHash: string;
   triage(findingId: string, status: string, by: string, note?: string): unknown;
+}
+
+/** The bundle's own integrity hash when present, else a deterministic hash of
+ *  its node ids — either way stable for the same bundle, so receipts replay. */
+function bundleId(bundle: AtlasBundle): string {
+  if (bundle.integrity?.bundleHash) return bundle.integrity.bundleHash;
+  return "sha256:" + createHash("sha256").update(bundle.graph.nodes.map((n) => n.id).join("\n")).digest("hex").slice(0, 16);
 }
 
 export function makeCtx(bundle: AtlasBundle, path: string | null): AtlasCtx {
   const ctx: AtlasCtx = {
     tools: new AtlasTools(bundle),
+    bundleHash: bundleId(bundle),
     triage(findingId, status, by, note) {
       const updated = applyDisposition(bundle, findingId, { status: status as any, by, note });
       // Persist FIRST: if the write throws (read-only bundle, full disk), the
@@ -107,6 +119,21 @@ export function buildServer(ctx: AtlasCtx): McpServer {
       try { return ok(ctx.triage(findingId, status, by, note)); }
       catch (e) { return ok({ ok: false, error: String(e instanceof Error ? e.message : e) }); }
     });
+
+  server.registerTool("atlas_exec",
+    {
+      title: "Run a read-only query against the atlas",
+      description:
+        "ONE programmable read tool. Write JavaScript that calls a frozen, read-only `atlas` API and `return`s a value — filter, join, aggregate, or traverse in a single call instead of chaining fixed tools. " +
+        "Available (all read-only): atlas.overview(), atlas.search(query, limit?), atlas.getNode(id), atlas.getSource(id), atlas.neighbors(id, kinds?), atlas.contextPack(task, budgetTokens?), atlas.threats(ref), atlas.course(id). " +
+        "The code runs in an isolate with NO network, filesystem, require, import, process, or timers — only `atlas`. There is no way to write or mutate the bundle from here. A wall-clock timeout and memory cap bound every run, and the response carries a replayable receipt (sha256 of code + bundle). " +
+        "Example: `const o = atlas.overview(); return o.entryPoints.map(e => ({ id: e.id, threats: atlas.threats(e.id).findings.length }));`",
+      inputSchema: {
+        code: z.string().describe("JavaScript body that uses `atlas` and returns a JSON-serializable value. Top-level `return` is supported."),
+      },
+      annotations: RO,
+    },
+    async ({ code }) => ok(runAtlasExec(ctx.tools, code, ctx.bundleHash)));
 
   return server;
 }
