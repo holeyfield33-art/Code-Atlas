@@ -12,6 +12,24 @@ import { castsBlastAfterTriage } from "../triage.js";
 
 const sha = (s: string) => "sha256:" + createHash("sha256").update(s).digest("hex").slice(0, 16);
 
+/** Deterministic hash of ALL state a read tool can surface — not the (optional,
+ *  generation-time, and after triage stale) `integrity` field. Receipts (context
+ *  pack, atlas_exec) must change whenever any read could change: different sources,
+ *  edges, diagnostics, findings, course, or identity fields all move the hash, and
+ *  it is recomputed when atlas_triage commits a new bundle. Same bundle => same
+ *  hash, so replay still holds. */
+export function bundleId(bundle: AtlasBundle): string {
+  const visible = {
+    product: bundle.product,
+    repository: bundle.repository,
+    graph: bundle.graph,                 // nodes + edges + diagnostics
+    sources: bundle.sources ?? null,
+    findings: bundle.findings ?? null,
+    course: bundle.course ?? null,
+  };
+  return "sha256:" + createHash("sha256").update(JSON.stringify(visible)).digest("hex").slice(0, 16);
+}
+
 export class AtlasTools {
   private byId = new Map<string, AtlasNode>();
   private byPath = new Map<string, string>();                 // file path -> code
@@ -22,6 +40,10 @@ export class AtlasTools {
   private findingsByNode = new Map<string, any[]>();
   private lessonByNode = new Map<string, any>();
   private inferredCall = new Set<string>();                    // `${from}->${to}` for name-inferred calls
+
+  private cachedId: string | null = null;
+  /** Content identity of the bundle these tools serve (computed once, lazily). */
+  get bundleHash(): string { return (this.cachedId ??= bundleId(this.bundle)); }
 
   constructor(private bundle: AtlasBundle) {
     for (const n of bundle.graph.nodes) this.byId.set(n.id, n);
@@ -169,9 +191,16 @@ export class AtlasTools {
       selected.push({ ...b, why, grade: (this.findingsByNode.get(id)?.[0]?.grade) ?? null });
       if (n.kind === "function" && "source" in src && used + cost <= cap) { included.push({ id, label: n.label, path: n.evidence.path, source: src.source }); used += cost; }
     }
-    const receipt = { task, selector: "atlas-ctx-v1", budgetTokens, selected: selected.map((s) => s.id), sourceIncluded: included.map((i) => i.id) };
+    // v2: the receipt binds the pack to the CONTENT it returned. bundleHash covers
+    // every query-visible byte; sourceHash covers the exact slices handed out. A
+    // function whose source changes but keeps its node id therefore changes the hash.
+    const receipt = {
+      task, selector: "atlas-ctx-v2", budgetTokens, bundleHash: this.bundleHash,
+      selected: selected.map((s) => s.id), sourceIncluded: included.map((i) => i.id),
+      sourceHash: sha(JSON.stringify(included.map((i) => [i.id, i.source]))),
+    };
     return { task, selected, sourceIncluded: included, receipt: { ...receipt, hash: sha(JSON.stringify(receipt)) },
-      note: "Minimal source-backed pack for this task. Replayable: same bundle + task + selector => same receipt hash." };
+      note: "Minimal source-backed pack for this task. Replayable: same bundle content + task + selector => same receipt hash." };
   }
 }
 

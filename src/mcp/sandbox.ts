@@ -97,7 +97,11 @@ ${code}
 })();
 var __s = JSON.stringify(__r === undefined ? null : __r);
 if (typeof __s !== "string") __s = "null";
-if (__s.length > ${maxResultBytes}) throw new Error("result exceeds " + ${maxResultBytes} + " bytes (serialized " + __s.length + ")");
+var __n = __s.length;
+if (__n > ${maxResultBytes}) throw new Error("result exceeds " + ${maxResultBytes} + " bytes (serialized >= " + __n + ")");
+// UTF-16 length undercounts non-ASCII: measure real UTF-8 bytes once it could matter
+// (worst case 3 bytes per code unit), after the cheap length check above.
+if (__n * 3 > ${maxResultBytes}) { __n = unescape(encodeURIComponent(__s)).length; if (__n > ${maxResultBytes}) throw new Error("result exceeds " + ${maxResultBytes} + " bytes (serialized " + __n + ")"); }
 return __s;
 })()`;
 
