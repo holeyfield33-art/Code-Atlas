@@ -7,10 +7,13 @@
  *  - writeSync may write FEWER bytes than requested without throwing (e.g. a nearly
  *    full disk), so we loop until every byte is written and abort before the rename
  *    if no progress is made.
+ *  - If `path` is a symlink, the REAL target is replaced and the link is left in
+ *    place (renaming over the link would turn it into a regular file and leave the
+ *    file it points at stale).
  *  - The replacement keeps the existing file's permission bits (a 0644 bundle stays
  *    0644); a brand-new file gets 0600.
  */
-import { openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync, statSync } from "node:fs";
+import { openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync, statSync, realpathSync } from "node:fs";
 import { dirname, basename, join } from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -24,7 +27,9 @@ export function writeFully(fd: number, buf: Buffer, write: typeof writeSync = wr
   }
 }
 
-export function writeFileAtomic(path: string, data: string, write: typeof writeSync = writeSync): void {
+export function writeFileAtomic(linkPath: string, data: string, write: typeof writeSync = writeSync): void {
+  let path = linkPath;
+  try { path = realpathSync(linkPath); } catch { /* does not exist yet: write the path as given */ }
   let mode = 0o600;
   try { mode = statSync(path).mode & 0o7777; } catch { /* new file: keep 0600 */ }
   const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);

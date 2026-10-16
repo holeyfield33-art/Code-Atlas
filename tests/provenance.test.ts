@@ -10,7 +10,7 @@
  */
 import assert from "node:assert";
 import { spawnSync, execSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, existsSync, chmodSync, statSync, writeSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, existsSync, chmodSync, statSync, writeSync, symlinkSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -73,6 +73,17 @@ assert.throws(() => writeFully(1, Buffer.from("x"), (() => 0) as any), /short wr
 if (process.platform !== "win32") {
   chmodSync(target, 0o644); writeFileAtomic(target, "{}");
   assert.strictEqual(statSync(target).mode & 0o777, 0o644, "an existing 0644 bundle stays 0644");
+}
+
+// symlinked bundle: the real file is updated and the link survives (needs symlink permission; skipped where the OS denies it)
+const realFile = join(dir, "real.json"), linkFile = join(dir, "link.json");
+writeFileSync(realFile, '{"v":1}');
+let linked = true;
+try { symlinkSync(realFile, linkFile); } catch { linked = false; console.log("  (symlink check skipped: no permission to create symlinks)"); }
+if (linked) {
+  writeFileAtomic(linkFile, '{"v":9}');
+  assert.strictEqual(readFileSync(realFile, "utf8"), '{"v":9}', "the symlink target holds the new content");
+  assert.ok(lstatSync(linkFile).isSymbolicLink(), "the link is still a symlink, not replaced by a regular file");
 }
 
 // ---- P2: UTF-8 byte cap -------------------------------------------------------
