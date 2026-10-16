@@ -2,18 +2,16 @@
 /**
  * code-atlas CLI.
  *   build [path]   scan a repo -> atlas.bundle.json + a self-contained viewer.html
- * Local, no server. Two graph backends sit behind one AtlasGraph seam: Babel for
+ *   serve          local browser app (loopback only) with an Open folder button
+ * Local-first. Two graph backends sit behind one AtlasGraph seam: Babel for
  * JS/TS, tree-sitter for Python/Ruby. Pipeline lives in build.ts; this adds IO.
  */
 import { Command } from "commander";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { buildAtlas } from "./build.js";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const viewerPath = resolve(here, "../viewer/viewer.html");
-const rendererPath = resolve(here, "../viewer/vendor/3d-force-graph.min.js");
+import { renderViewer } from "./viewer.js";
+import { serveAtlas } from "./server.js";
 
 const program = new Command();
 program
@@ -39,19 +37,8 @@ program
     mkdirSync(opts.out, { recursive: true });
     writeFileSync(join(opts.out, "atlas.bundle.json"), JSON.stringify(bundle, null, 2));
 
-    let viewer: string;
-    try { viewer = readFileSync(viewerPath, "utf8"); }
-    catch { console.error("Viewer template not found at " + viewerPath); process.exit(1); }
-    let renderer: string;
-    try { renderer = readFileSync(rendererPath, "utf8"); }
-    catch { console.error("Vendored renderer not found at " + rendererPath); process.exit(1); }
-    // Bundle the renderer in (no CDN) and inject the bundle as inert JSON (escape
-    // "</script" and use function replacers so source can't break out or be mangled).
-    renderer = renderer.replace(/<\/script/gi, "<\\/script");
-    viewer = viewer.replace("/*__ATLAS_RENDERER__*/", () => renderer);
-    const bundleJson = JSON.stringify(bundle).replace(/</g, "\\u003c");
-    viewer = viewer.replace("/*__ATLAS_BUNDLE_JSON__*/", () => bundleJson);
-    writeFileSync(join(opts.out, "viewer.html"), viewer);
+    // Renderer bundled in (no CDN); the bundle is injected as inert JSON (see viewer.ts).
+    writeFileSync(join(opts.out, "viewer.html"), renderViewer(bundle));
 
     const g = bundle.graph;
     const fns = g.nodes.filter((n) => n.kind === "function").length;
@@ -80,5 +67,18 @@ program
     }
     console.log(`  Open ${join(opts.out, "viewer.html")} in a browser.`);
   });
+
+program
+  .command("serve")
+  .description("Start the local app (127.0.0.1 only) with an Open folder button.")
+  .option("-p, --port <number>", "loopback port", "4173")
+  .action(async (opts: { port: string }) => {
+    const port = Number(opts.port);
+    if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("Invalid port");
+    await serveAtlas(port);
+  });
+
+// `code-atlas` with no command opens the local app.
+program.action(async () => { await serveAtlas(); });
 
 program.parseAsync().catch((e) => { console.error(String(e?.stack || e)); process.exit(1); });

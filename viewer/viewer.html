@@ -5,6 +5,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
 <style>
+  [hidden]{display:none!important}
   /* Layout: full-bleed 3D stage with a fixed command rail (top) and a sliding evidence panel (right). Dark-first, instrument-like. */
   :root{
     --bg:#0b0f14; --panel:#111823; --panel-2:#0e141d; --edge:#1f2a37;
@@ -183,6 +184,7 @@
   .empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--fg-faint);
     font-size:14px;z-index:3;pointer-events:none}
   .sample-badge{position:absolute;left:50%;top:calc(var(--rail-h) + 6px);transform:translateX(-50%);z-index:4;
+    max-width:calc(100vw - 40px);text-align:center;
     font-family:var(--mono);font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--grade-yellow);
     background:color-mix(in srgb,var(--panel) 85%,transparent);border:1px solid var(--edge);border-radius:999px;padding:4px 11px}
   @media (max-width:560px){
@@ -205,10 +207,13 @@
         <span class="rev" id="brandRev"></span>
       </div>
       <span class="spacer"></span>
-      <button class="btn" id="loadBtn" title="Load an Atlas graph or bundle (.json)">↥ Load bundle</button>
+      <button class="btn" id="folderBtn" title="Analyze a project folder on this computer">Open folder</button>
+      <button class="btn" id="loadBtn" title="Load an existing Atlas graph or bundle (.json)">Load bundle</button>
+      <button class="btn" id="downloadBtn" title="Save the current project as an Atlas bundle">Save bundle</button>
       <button class="btn" id="fitBtn" title="Reset the view">⤢ Fit view</button>
       <button class="btn" id="themeBtn" title="Toggle light / dark">◐ Theme</button>
       <input id="file" type="file" accept="application/json,.json" hidden>
+      <input id="folder" type="file" webkitdirectory multiple hidden>
     </div>
     <div class="rail-bottom">
       <div class="modes" role="group" aria-label="View mode">
@@ -251,6 +256,7 @@
 <!-- The CLI injects the bundle here as inert JSON (never as executable JS), so
      repository source carried in it cannot run as script in this page. -->
 <script type="application/json" id="atlas-bundle">/*__ATLAS_BUNDLE_JSON__*/</script>
+<script type="application/json" id="atlas-upload-config">/*__ATLAS_UPLOAD_CONFIG__*/</script>
 <!-- 3D rendering library (3d-force-graph 1.76.0, MIT) is bundled INTO this file by
      the CLI — no CDN, no external script execution, works fully offline. -->
 <script>/*__ATLAS_RENDERER__*/</script>
@@ -938,6 +944,7 @@ function indexLessons(course){
 /* ---- boot ----------------------------------------------------------------- */
 function loadGraph(raw, {sample=false}={}){
   const norm = normalize(raw);
+  state.bundle = raw;
   state.graph = norm.graph; state.isSample = sample;
   indexGraph(norm.graph);
   // bounded loading: default a large repo to the collapsed file view so it opens fast
@@ -955,9 +962,50 @@ function loadGraph(raw, {sample=false}={}){
   document.getElementById("seal").textContent = PRODUCT.seal;
   document.getElementById("brandRev").textContent = norm.label ? norm.label : (norm.revision||"");
   document.getElementById("sampleBadge").hidden = !sample;
+  document.getElementById("sampleBadge").style.color = "";
+  document.getElementById("sampleBadge").textContent = "Sample graph — open a folder or load a bundle";
   closeInspector();
   render();
+  const empty = document.getElementById("empty");
+  empty.hidden = norm.graph.nodes.length > 0;
+  empty.textContent = "No graph nodes found in this project.";
   setTimeout(()=>FG.zoomToFit(600,80),400);
+}
+
+function showLoadError(message){
+  const badge = document.getElementById("sampleBadge");
+  badge.hidden = false;
+  badge.style.color = "var(--grade-red)";
+  badge.textContent = message;
+}
+
+const ignoredFolders = new Set(["node_modules", ".git", "dist", "build", ".next", "coverage", ".course", "atlas", ".turbo", "out", "vendor", "__pycache__", ".venv", "venv"]);
+const sourceExtension = /\.(?:[cm]?jsx?|tsx?|mts|cts|vue|pyi?|rb|rake)$/;
+async function ingestFolder(fileList, token){
+  const all = Array.from(fileList);
+  if(!all.length) return;
+  const name = all[0].webkitRelativePath.split("/")[0];
+  const eligible = all.filter(file=>{
+    const parts = file.webkitRelativePath.split("/").slice(1);
+    return parts.length && !parts.some(p=>ignoredFolders.has(p)) && sourceExtension.test(file.name) && file.size<=200000;
+  });
+  if(!eligible.length) throw new Error("No supported source files in this folder. Select a JS/TS, Vue, Python, or Ruby project.");
+  if(eligible.length>2000) throw new Error("This folder exceeds 2,000 source files. Select a smaller source folder.");
+  if(eligible.reduce((total,file)=>total+file.size,0)>24*1024*1024) throw new Error("This folder exceeds 24 MiB of source. Select a smaller source folder.");
+  const files = [];
+  for(const file of eligible) files.push({path:file.webkitRelativePath.split("/").slice(1).join("/"),code:await file.text()});
+  const response = await fetch("/api/build", {
+    method:"POST", headers:{"Content-Type":"application/json","X-Atlas-Token":token}, body:JSON.stringify({name,files})
+  });
+  const result = await response.json();
+  if(!response.ok) throw new Error(result.error || "Could not analyze this folder.");
+  loadGraph(result);
+  const skipped = all.length - eligible.length;
+  if(skipped){
+    const badge = document.getElementById("sampleBadge");
+    badge.hidden=false; badge.style.color="";
+    badge.textContent=`Loaded ${eligible.length} source files; skipped ${skipped} excluded, unsupported, or oversized files.`;
+  }
 }
 
 function buildFG(){
@@ -1029,13 +1077,49 @@ window.addEventListener("DOMContentLoaded",()=>{
   if(window.__ATLAS_BUNDLE__) loadGraph(window.__ATLAS_BUNDLE__,{sample:false});
   else loadGraph(SAMPLE_BUNDLE,{sample:true});
 
+  let uploadToken = null;
+  try{ uploadToken = JSON.parse(document.getElementById("atlas-upload-config").textContent).token; }catch{}
+  const folderBtn = document.getElementById("folderBtn");
+  const folder = document.getElementById("folder");
+  folderBtn.addEventListener("click",()=>{
+    if(!uploadToken){
+      showLoadError("To open a folder, run npm start in Code Atlas, then open http://127.0.0.1:4173. This offline viewer accepts saved bundles.");
+      return;
+    }
+    folder.value=""; folder.click();
+  });
+  folder.addEventListener("change",async()=>{
+    if(!folder.files.length) return;
+    const empty=document.getElementById("empty");
+    folderBtn.disabled=true;
+    document.getElementById("loadBtn").disabled=true;
+    document.getElementById("downloadBtn").disabled=true;
+    empty.textContent="Analyzing folder…"; empty.hidden=false;
+    try{ await ingestFolder(folder.files,uploadToken); }
+    catch(error){ showLoadError("Could not open folder: "+error.message); }
+    finally{
+      empty.hidden=!!state.graph?.nodes.length;
+      empty.textContent="No graph nodes found in this project.";
+      folderBtn.disabled=false;
+      document.getElementById("loadBtn").disabled=false;
+      document.getElementById("downloadBtn").disabled=false;
+      folder.value="";
+    }
+  });
+  document.getElementById("downloadBtn").addEventListener("click",()=>{
+    if(!state.bundle) return;
+    const url=URL.createObjectURL(new Blob([JSON.stringify(state.bundle,null,2)],{type:"application/json"}));
+    const link=document.createElement("a"); link.href=url; link.download="atlas.bundle.json"; link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  });
+
   document.getElementById("loadBtn").addEventListener("click",()=>document.getElementById("file").click());
   document.getElementById("file").addEventListener("change",ev=>{
     const f=ev.target.files[0]; if(!f) return;
     const r=new FileReader();
     r.onload=()=>{ try{ loadGraph(JSON.parse(r.result),{sample:false}); }
-      catch(err){ const b=document.getElementById("sampleBadge"); b.hidden=false;
-        b.style.color="var(--grade-red)"; b.textContent="Could not load: "+err.message; } };
+      catch(err){ showLoadError("Could not load: "+err.message); } finally{ ev.target.value=""; } };
+    r.onerror=()=>{ showLoadError("Could not read the selected bundle."); ev.target.value=""; };
     r.readAsText(f);
   });
   document.getElementById("fitBtn").addEventListener("click",()=>FG.zoomToFit(600,80));
