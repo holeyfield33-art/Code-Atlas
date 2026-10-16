@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Code Atlas MCP server (stdio). Serves one bundle to an agent so it can query
+ * Code Atlas MCP server (stdio, or authenticated read-only Streamable HTTP with --http). Serves one bundle to an agent so it can query
  * the graph, threats, course, and pull minimal source — instead of loading the
  * whole repo into context.
  *
@@ -65,7 +65,14 @@ export function makeCtx(bundle: AtlasBundle, path: string | null): AtlasCtx {
   return ctx;
 }
 
-export function buildServer(ctx: AtlasCtx): McpServer {
+export interface BuildServerOptions {
+  /** Register `atlas_triage` (the only tool that WRITES). Default true for local stdio,
+   *  where the user owns the bundle; the HTTP transport passes false unless the operator
+   *  opts in with --allow-triage, so a remote credential is read-only by default. */
+  allowTriage?: boolean;
+}
+
+export function buildServer(ctx: AtlasCtx, opts: BuildServerOptions = {}): McpServer {
   const server = new McpServer({ name: "code-atlas", version: "0.1.0" });
 
   server.registerTool("atlas_overview",
@@ -100,7 +107,7 @@ export function buildServer(ctx: AtlasCtx): McpServer {
     { title: "Lesson for a component", description: "The grounded lesson + Break & Fix attached to a node, if any.", inputSchema: { id: z.string() }, annotations: RO },
     async ({ id }) => ok(ctx.tools.course(id)));
 
-  server.registerTool("atlas_triage",
+  if (opts.allowTriage !== false) server.registerTool("atlas_triage",
     {
       title: "Disposition a finding",
       description: "Record a triage decision on a finding: confirmed | false_positive | accepted_risk, with who made the call and an optional note. Persists to the bundle. A disposition NEVER upgrades the grade; false_positive drops the finding's colour + blast, accepted_risk stops it casting a blast.",
@@ -138,9 +145,25 @@ export function buildServer(ctx: AtlasCtx): McpServer {
 }
 
 async function main() {
-  const path = bundlePath(process.argv.slice(2));
+  const args = process.argv.slice(2);
+  const path = bundlePath(args);
   const bundle = parseBundle(JSON.parse(readFileSync(path, "utf8")));
-  const server = buildServer(makeCtx(bundle, path));
+  const ctx = makeCtx(bundle, path);
+
+  if (args.includes("--http")) {
+    // Imported lazily: http.ts imports buildServer from this module.
+    const { startHttpServer, httpOptionsFromArgs } = await import("./http.js");
+    const options = httpOptionsFromArgs(args, process.env);
+    const httpServer = await startHttpServer(ctx, options);
+    const where = `http://${options.host}:${(httpServer.address() as { port: number }).port}/mcp`;
+    console.error(`code-atlas MCP server ready (Streamable HTTP at ${where}; ${options.allowTriage ? "READ+TRIAGE" : "read-only"})`);
+    const shutdown = () => { httpServer.close((e) => { if (e) { console.error("MCP HTTP shutdown failed:", e); process.exitCode = 1; } }); };
+    process.once("SIGINT", shutdown);
+    process.once("SIGTERM", shutdown);
+    return;
+  }
+
+  const server = buildServer(ctx);
   await server.connect(new StdioServerTransport());
   // stderr is safe for logs on stdio transport (stdout is the protocol channel)
   console.error("code-atlas MCP server ready (stdio)");
