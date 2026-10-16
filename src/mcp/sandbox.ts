@@ -39,8 +39,12 @@ export interface SandboxLimits {
   /** Wall-clock budget for the script, ms. */ timeoutMs: number;
   /** Isolate heap cap, MB. */ memoryMb: number;
   /** Max length of agent code, chars. */ maxCodeChars: number;
+  /** Max serialized result size, bytes — enforced INSIDE the isolate before the
+   *  value is copied to the host, so a huge return can't blow the host heap or
+   *  the MCP response even though it fit under the isolate's memory cap. */
+  maxResultBytes: number;
 }
-export const DEFAULT_LIMITS: SandboxLimits = { timeoutMs: 1000, memoryMb: 128, maxCodeChars: 20_000 };
+export const DEFAULT_LIMITS: SandboxLimits = { timeoutMs: 1000, memoryMb: 128, maxCodeChars: 20_000, maxResultBytes: 1_000_000 };
 
 export interface ExecResult {
   ok: boolean;
@@ -81,8 +85,21 @@ const BOOTSTRAP = `
   globalThis.__ATLAS_HOST__ = undefined;
 `;
 
-/** Agent code runs in a strict IIFE so a top-level \`return\` is its result. */
-const wrapUser = (code: string) => `(function(){\n"use strict";\n${code}\n})()`;
+/** Agent code runs in a strict IIFE so a top-level \`return\` is its result. The
+ *  result is JSON-serialized and size-checked INSIDE the isolate; only the bounded
+ *  string is copied out (the host JSON.parses it). So a huge return is rejected
+ *  before it can cross into the host heap, and `copy: true` only ever transfers a
+ *  string no larger than the cap. */
+const wrapUser = (code: string, maxResultBytes: number) => `(function(){
+"use strict";
+var __r = (function(){
+${code}
+})();
+var __s = JSON.stringify(__r === undefined ? null : __r);
+if (typeof __s !== "string") __s = "null";
+if (__s.length > ${maxResultBytes}) throw new Error("result exceeds " + ${maxResultBytes} + " bytes (serialized " + __s.length + ")");
+return __s;
+})()`;
 
 /**
  * Run agent code against the read-only atlas API inside an isolate.
@@ -124,11 +141,12 @@ export function runAtlasExec(
     // consume it and blank the handle — all before a line of agent code runs.
     context.global.setSync("__ATLAS_HOST__", host);
     context.evalSync(BOOTSTRAP);
-    const value = context.evalSync(wrapUser(code), {
+    // The isolate returns a bounded JSON string (cap enforced inside); parse on host.
+    const json = context.evalSync(wrapUser(code, limits.maxResultBytes), {
       timeout: limits.timeoutMs,
-      copy: true,   // deep-copy the return value out to the host
-    });
-    return { ok: true, result: value, ...base };
+      copy: true,
+    }) as string;
+    return { ok: true, result: JSON.parse(json), ...base };
   } catch (e) {
     return { ok: false, error: String(e instanceof Error ? e.message : e), ...base };
   } finally {

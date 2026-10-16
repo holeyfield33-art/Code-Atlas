@@ -40,11 +40,22 @@ export interface AtlasCtx {
   triage(findingId: string, status: string, by: string, note?: string): unknown;
 }
 
-/** The bundle's own integrity hash when present, else a deterministic hash of
- *  its node ids — either way stable for the same bundle, so receipts replay. */
-function bundleId(bundle: AtlasBundle): string {
-  if (bundle.integrity?.bundleHash) return bundle.integrity.bundleHash;
-  return "sha256:" + createHash("sha256").update(bundle.graph.nodes.map((n) => n.id).join("\n")).digest("hex").slice(0, 16);
+/** Deterministic hash of ALL state a read tool can surface — not the (optional,
+ *  generation-time, and after triage stale) `integrity` field. The atlas_exec
+ *  receipt must change whenever any read could change: different sources, edges,
+ *  diagnostics, findings, course, or identity fields all move the hash, and it is
+ *  recomputed when atlas_triage commits a new bundle. Same bundle => same hash,
+ *  so replay still holds. */
+export function bundleId(bundle: AtlasBundle): string {
+  const visible = {
+    product: bundle.product,
+    repository: bundle.repository,
+    graph: bundle.graph,                 // nodes + edges + diagnostics
+    sources: bundle.sources ?? null,
+    findings: bundle.findings ?? null,
+    course: bundle.course ?? null,
+  };
+  return "sha256:" + createHash("sha256").update(JSON.stringify(visible)).digest("hex").slice(0, 16);
 }
 
 export function makeCtx(bundle: AtlasBundle, path: string | null): AtlasCtx {
@@ -59,6 +70,7 @@ export function makeCtx(bundle: AtlasBundle, path: string | null): AtlasCtx {
       if (path) writeFileSync(path, JSON.stringify(updated, null, 2));
       bundle = updated;                       // commit the in-memory bundle
       ctx.tools = new AtlasTools(updated);    // refresh reads from the committed value
+      ctx.bundleHash = bundleId(updated);     // and the exec receipt id, so replay reflects the new state
       const f = (updated.findings ?? []).find((x) => x.id === findingId)!;
       return { ok: true, persisted: Boolean(path), finding: { id: f.id, title: f.title, grade: f.grade, disposition: f.disposition } };
     },

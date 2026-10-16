@@ -18,6 +18,7 @@ import { dirname, resolve } from "node:path";
 import { parseBundle } from "../src/schema.js";
 import { AtlasTools } from "../src/mcp/tools.js";
 import { runAtlasExec } from "../src/mcp/sandbox.js";
+import { bundleId } from "../src/mcp/server.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bundlePath = resolve(repoRoot, "atlas/atlas.bundle.json");
@@ -55,10 +56,11 @@ assert.strictEqual(amb.ok, true, "probe runs");
 assert.strictEqual(amb.result, "undefined,undefined,undefined,undefined,undefined,function",
   "no network/require/process/timers; WASM compile exists but has no host imports to reach");
 
-// 5) JAIL: dynamic import is unavailable
-const imp = run(`return import('node:fs').then(()=>'LEAKED').catch(e=>'blocked:'+String(e).slice(0,20));`);
-// import() returns a promise; copy:true can't transfer it, so this fails closed OR resolves to 'blocked:'
-assert.ok(imp.ok === false || /blocked:/.test(String(imp.result)), "dynamic import cannot load host modules");
+// 5) JAIL: no host module system — CommonJS loaders absent, and dynamic import
+// has no resolver, so there is no path to a host module from inside the isolate.
+const imp = run(`return [typeof require, typeof module, typeof __dirname, typeof exports].join(",");`);
+assert.strictEqual(imp.ok, true, "probe runs");
+assert.strictEqual(imp.result, "undefined,undefined,undefined,undefined", "no CommonJS module loader exists in the isolate");
 
 // 6) JAIL: no write path — triage is not on the surface, and the host ref is not reachable
 const noWrite = run(`return typeof atlas.triage + "," + typeof atlas.applyDisposition;`);
@@ -67,24 +69,45 @@ const noHost = run(`return typeof __ATLAS_HOST__ + "," + (typeof globalThis.__AT
 assert.strictEqual(noHost.result, "undefined,undefined", "the host capability reference is not reachable from agent code");
 
 // 7) JAIL: wall-clock timeout kills a runaway loop (fails closed, no throw)
-const spin = run(`while (true) {}`, { timeoutMs: 200, memoryMb: 128, maxCodeChars: 20000 });
+const spin = run(`while (true) {}`, { timeoutMs: 200, memoryMb: 128, maxCodeChars: 20000, maxResultBytes: 1_000_000 });
 assert.strictEqual(spin.ok, false, "infinite loop is terminated");
 assert.ok(/timed out|time/i.test(spin.error || ""), "timeout is reported");
 
 // 8) JAIL: memory cap kills an allocation bomb
 const bomb = run(`const a = []; for (;;) { a.push(new Array(1e6).fill(7)); } return a.length;`,
-  { timeoutMs: 3000, memoryMb: 16, maxCodeChars: 20000 });
+  { timeoutMs: 3000, memoryMb: 16, maxCodeChars: 20000, maxResultBytes: 1_000_000 });
 assert.strictEqual(bomb.ok, false, "allocation bomb is terminated by the memory cap");
 
-// 9) bad code fails closed, never throws
+// 9) JAIL: a large return is capped INSIDE the isolate, before it reaches the host heap
+const huge = run(`return "x".repeat(2_000_000);`);   // ~2 MB serialized > 1 MB default cap
+assert.strictEqual(huge.ok, false, "oversized result is rejected, not copied to the host");
+assert.ok(/result exceeds/.test(huge.error || ""), "the result cap is named in the error");
+const okSize = run(`return "x".repeat(10);`);
+assert.strictEqual(okSize.ok, true, "a normal-size result still returns");
+assert.strictEqual(okSize.result, "xxxxxxxxxx", "the result round-trips through the size-checked path");
+
+// 10) bad code fails closed, never throws
 const bad = run(`return (((;`);
 assert.strictEqual(bad.ok, false, "syntax error returns ok:false");
 assert.ok(bad.receipt && bad.receipt.hash, "a receipt is present even on failure");
 
-// 10) oversized code rejected before execution
-const big = run("return 1;".padEnd(20_001, " "), { timeoutMs: 1000, memoryMb: 64, maxCodeChars: 20000 });
+// 11) oversized code rejected before execution
+const big = run("return 1;".padEnd(20_001, " "), { timeoutMs: 1000, memoryMb: 64, maxCodeChars: 20000, maxResultBytes: 1_000_000 });
 assert.strictEqual(big.ok, false, "code over the char cap is rejected");
 assert.ok(/chars/.test(big.error || ""), "the cap is named in the error");
+
+// 12) RECEIPT covers all query-visible state, not just node ids, and ignores the
+// (possibly stale) integrity field — so any change a read could surface moves it.
+const h0 = bundleId(bundle);
+const srcChanged = structuredClone(bundle);
+if (srcChanged.sources && srcChanged.sources.length) srcChanged.sources[0].code += "\n// touched";
+assert.notStrictEqual(bundleId(srcChanged), h0, "changing a source changes the bundle id (sources are query-visible)");
+const integrityStale = structuredClone(bundle);
+(integrityStale as any).integrity = { graphHash: "x", bundleHash: "sha256:frozen" };
+const integrityStale2 = structuredClone(integrityStale);
+integrityStale2.graph.nodes[0].label += " (changed)";   // always present; a read would surface it
+assert.notStrictEqual(bundleId(integrityStale2), bundleId(integrityStale),
+  "a change is detected even when a frozen integrity.bundleHash is identical (we hash content, not integrity)");
 
 console.log("atlas-exec.test: one programmable read tool — join runs, receipt replayable; jail holds " +
   "(no net/require/process/import/host-ref/write, timeout + memory caps, fails closed)");
