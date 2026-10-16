@@ -53,4 +53,11 @@ assert.ok(runNode.calledBy.some((c: any) => c.label === "main" && c.inferred ===
   "getNode(run).calledBy names the caller main (not run) and marks it inferred");
 assert.ok(!runNode.calledBy.some((c: any) => c.id === pyRun.id), "calledBy never lists the selected node itself");
 
+// a lesson's teach line never states a name-inferred call relationship as proven
+const pyLessons = (bundle.course?.lessons ?? []).filter((l) => nodeById.get(l.breakAndFix.nodeRef)?.evidence.method === "tree-sitter-static");
+assert.ok(pyLessons.length >= 1, "a Python lesson exists");
+for (const l of pyLessons) assert.match(l.teach, /matched by name only, not proven/, `${l.title}: teach text flags inferred calls`);
+const tsLessons = (bundle.course?.lessons ?? []).filter((l) => nodeById.get(l.breakAndFix.nodeRef)?.evidence.method === "babel-static");
+for (const l of tsLessons) assert.doesNotMatch(l.teach, /not proven/, `${l.title}: resolved (Babel) calls are not flagged`);
+
 console.log("edge-confidence.test: tree-sitter calls are inferred, Babel calls are not, contains/imports resolved, MCP flags inferred callees + names the right caller");
