@@ -75,6 +75,20 @@ if (process.platform !== "win32") {
   assert.strictEqual(statSync(target).mode & 0o777, 0o644, "an existing 0644 bundle stays 0644");
 }
 
+// read-only target: rejected (POSIX 0444 and the Windows read-only attribute)
+const ro = join(dir, "ro.json"); writeFileSync(ro, '{"v":1}'); chmodSync(ro, 0o444);
+assert.throws(() => writeFileAtomic(ro, '{"v":2}'), "a read-only bundle is not replaced");
+assert.strictEqual(readFileSync(ro, "utf8"), '{"v":1}', "the read-only bundle is unchanged");
+chmodSync(ro, 0o644);
+assert.ok(!readdirSync(dir).some((f) => f.endsWith(".tmp")), "no temp file left by the rejected write");
+
+// exact mode under a restrictive umask (POSIX)
+if (process.platform !== "win32") {
+  const old = process.umask(0o077);
+  try { chmodSync(target, 0o644); writeFileAtomic(target, "{}"); assert.strictEqual(statSync(target).mode & 0o777, 0o644, "0644 survives umask 077"); }
+  finally { process.umask(old); }
+}
+
 // symlinked bundle: the real file is updated and the link survives (needs symlink permission; skipped where the OS denies it)
 const realFile = join(dir, "real.json"), linkFile = join(dir, "link.json");
 writeFileSync(realFile, '{"v":1}');
@@ -94,6 +108,11 @@ assert.strictEqual(ascii.ok, true, "60,000 ASCII bytes fit a 100,000-byte cap");
 const wide = runAtlasExec(tools, `return "é".repeat(60000);`, "h", limits);   // 60,000 chars = ~120,000 UTF-8 bytes
 assert.strictEqual(wide.ok, false, "60,000 two-byte characters exceed the byte cap even though length < cap");
 assert.match(String((wide as any).error), /exceeds 100000 bytes/, "the error names the byte cap");
+// agent code cannot swap the byte counter or serializer to dodge the cap
+const tamper = runAtlasExec(tools, `globalThis.encodeURIComponent = () => ""; globalThis.unescape = () => ""; return "漢".repeat(40000);`, "h", limits);
+assert.strictEqual(tamper.ok, false, "reassigning encodeURIComponent/unescape does not bypass the byte cap");
+const tamper2 = runAtlasExec(tools, `JSON.stringify = () => "1"; return "漢".repeat(40000);`, "h", limits);
+assert.strictEqual(tamper2.ok, false, "reassigning JSON.stringify does not bypass the byte cap");
 const cjk = runAtlasExec(tools, `return "漢".repeat(40000);`, "h", limits);   // 40,000 chars = 120,000 bytes
 assert.strictEqual(cjk.ok, false, "three-byte characters are counted as three bytes");
 
