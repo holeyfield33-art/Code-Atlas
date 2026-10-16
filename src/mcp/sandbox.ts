@@ -92,16 +92,19 @@ const BOOTSTRAP = `
  *  string no larger than the cap. */
 const wrapUser = (code: string, maxResultBytes: number) => `(function(){
 "use strict";
+// Trusted intrinsics captured BEFORE agent code runs: user code may reassign
+// globalThis.JSON / encodeURIComponent / unescape, but not these locals.
+var __stringify = JSON.stringify, __enc = encodeURIComponent, __unesc = unescape;
 var __r = (function(){
 ${code}
 })();
-var __s = JSON.stringify(__r === undefined ? null : __r);
+var __s = __stringify(__r === undefined ? null : __r);
 if (typeof __s !== "string") __s = "null";
 var __n = __s.length;
 if (__n > ${maxResultBytes}) throw new Error("result exceeds " + ${maxResultBytes} + " bytes (serialized >= " + __n + ")");
 // UTF-16 length undercounts non-ASCII: measure real UTF-8 bytes once it could matter
 // (worst case 3 bytes per code unit), after the cheap length check above.
-if (__n * 3 > ${maxResultBytes}) { __n = unescape(encodeURIComponent(__s)).length; if (__n > ${maxResultBytes}) throw new Error("result exceeds " + ${maxResultBytes} + " bytes (serialized " + __n + ")"); }
+if (__n * 3 > ${maxResultBytes}) { __n = __unesc(__enc(__s)).length; if (__n > ${maxResultBytes}) throw new Error("result exceeds " + ${maxResultBytes} + " bytes (serialized " + __n + ")"); }
 return __s;
 })()`;
 
