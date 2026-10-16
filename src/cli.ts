@@ -30,9 +30,11 @@ program
   .option("--rules <file>", "custom rule pack (JSON) for the findings scanner")
   .option("--findings-report <file>", "a vibe-explainer --json report to map onto the graph")
   .option("--no-security", "skip the findings scanner")
-  .action(async (path: string, opts: { out: string; product: string; rules?: string; findingsReport?: string; security: boolean }) => {
+  .option("--max-files <n>", "max files to analyze (default 2000); omitted files are counted in coverage", (v) => parseInt(v, 10))
+  .option("--max-bytes <n>", "max bytes per file (default 200000)", (v) => parseInt(v, 10))
+  .action(async (path: string, opts: { out: string; product: string; rules?: string; findingsReport?: string; security: boolean; maxFiles?: number; maxBytes?: number }) => {
     const { bundle, langSummary, redactionCount, findingsCount, unmappedReport } =
-      await buildAtlas(path, { product: opts.product, rules: opts.rules, findingsReport: opts.findingsReport, security: opts.security });
+      await buildAtlas(path, { product: opts.product, rules: opts.rules, findingsReport: opts.findingsReport, security: opts.security, maxFiles: opts.maxFiles, maxBytes: opts.maxBytes });
 
     mkdirSync(opts.out, { recursive: true });
     writeFileSync(join(opts.out, "atlas.bundle.json"), JSON.stringify(bundle, null, 2));
@@ -59,6 +61,23 @@ program
     console.log(`  ${g.nodes.length} nodes (${fns} functions), ${g.edges.length} edges, ` +
       `${bundle.course?.lessons.length ?? 0} lessons, ${findingsCount} findings, ${g.diagnostics.length} diagnostics`);
     if (redactionCount) console.log(`  redacted ${redactionCount} secret-like value(s) from inlined source`);
+    const cov = bundle.coverage;
+    if (cov) {
+      const s = cov.skipped;
+      // every skip reason is in the sum + the breakdown, so the line never reads
+      // "analyzed N/N" while files were pruned by an ignored dir or an unreadable entry.
+      const omitted = s.unsupported + s.tooLarge + s.overCap + s.symlink + s.ignoredDir + s.ignoredDirFiles + s.unreadable;
+      const parts = [
+        s.unsupported && `${s.unsupported} unsupported`,
+        s.tooLarge && `${s.tooLarge} too-large`,
+        s.overCap && `${s.overCap} over the ${cov.maxFiles}-file cap`,
+        s.symlink && `${s.symlink} symlink`,
+        s.ignoredDirFiles && `${s.ignoredDirFiles} in ${s.ignoredDir} ignored dir(s)`,
+        s.unreadable && `${s.unreadable} unreadable`,
+      ].filter(Boolean).join(", ");
+      console.log(`  coverage: analyzed ${cov.scannedFiles}/${cov.totalFilesSeen} walked files` + (omitted ? ` — skipped ${parts}` : ""));
+      if (s.overCap) console.log(`  NOTE: ${s.overCap} supported file(s) were omitted by the --max-files cap (${cov.maxFiles}); raise it to include them.`);
+    }
     console.log(`  Open ${join(opts.out, "viewer.html")} in a browser.`);
   });
 

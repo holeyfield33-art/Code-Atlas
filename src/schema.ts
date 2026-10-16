@@ -234,6 +234,18 @@ export const AtlasBundleSchema = z.object({
   findings: z.array(FindingSchema).optional(),      // Security layer (absent => all GRAY)
   asiSnapshot: AsiSnapshotSchema.optional(),        // pinned ASI classes referenced by findings
   sources: z.array(z.object({ path: z.string(), code: z.string() })).optional(), // inlined source for the viewer (offline)
+  // Scan-coverage accounting: every omitted file counted by reason, so the map's
+  // completeness is auditable (absent on bundles built before this layer existed).
+  coverage: z.object({
+    scannedFiles: z.number(),
+    totalFilesSeen: z.number(),
+    maxFiles: z.number(),
+    maxBytes: z.number(),
+    skipped: z.object({
+      unsupported: z.number(), tooLarge: z.number(), overCap: z.number(),
+      symlink: z.number(), ignoredDir: z.number(), ignoredDirFiles: z.number(), unreadable: z.number(),
+    }),
+  }).optional(),
   diagnostics: z.array(z.object({ stage: z.string(), message: z.string() })).default([]),
   integrity: z.object({ graphHash: z.string(), bundleHash: z.string() }).optional(),
 });
