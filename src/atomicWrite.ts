@@ -7,13 +7,21 @@
  *  - writeSync may write FEWER bytes than requested without throwing (e.g. a nearly
  *    full disk), so we loop until every byte is written and abort before the rename
  *    if no progress is made.
+ *  - After the rename the parent directory is fsynced (POSIX), so a reported success
+ *    survives power loss.
  *  - If `path` is a symlink, the REAL target is replaced and the link is left in
  *    place (renaming over the link would turn it into a regular file and leave the
  *    file it points at stale).
- *  - The replacement keeps the existing file's permission bits (a 0644 bundle stays
- *    0644); a brand-new file gets 0600.
+ *  - The replacement keeps the existing file's EXACT permission bits (a 0644 bundle
+ *    stays 0644 even under a restrictive umask: applied with fchmod after open);
+ *    a brand-new file gets 0600.
+ *  - The original owner/group are preserved (POSIX); if this process may not restore
+ *    them the write fails instead of silently transferring ownership.
+ *  - A read-only existing target is rejected up front: replacing via rename is
+ *    governed by the directory's permissions, so without this check a 0444 bundle
+ *    would be silently overwritten (writeFileSync used to fail on it).
  */
-import { openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync, statSync, realpathSync } from "node:fs";
+import { openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync, statSync, realpathSync, accessSync, fchmodSync, fchownSync, constants } from "node:fs";
 import { dirname, basename, join } from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -27,19 +35,36 @@ export function writeFully(fd: number, buf: Buffer, write: typeof writeSync = wr
   }
 }
 
+/** fsync a directory so a rename inside it survives power loss. POSIX only: Windows
+ *  cannot open a directory for fsync, and NTFS journals the rename. */
+function fsyncDir(dir: string): void {
+  if (process.platform === "win32") return;
+  const fd = openSync(dir, "r");
+  try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+
 export function writeFileAtomic(linkPath: string, data: string, write: typeof writeSync = writeSync): void {
   let path = linkPath;
   try { path = realpathSync(linkPath); } catch { /* does not exist yet: write the path as given */ }
-  let mode = 0o600;
-  try { mode = statSync(path).mode & 0o7777; } catch { /* new file: keep 0600 */ }
+  let mode = 0o600, existed = false, uid = -1, gid = -1;
+  try { const st = statSync(path); mode = st.mode & 0o7777; uid = st.uid; gid = st.gid; existed = true; } catch { /* new file: keep 0600 */ }
+  if (existed) accessSync(path, constants.W_OK);                 // throws EACCES/EPERM on a read-only target
   const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
   let fd: number | undefined;
   try {
     fd = openSync(tmp, "wx", mode);
+    if (existed) {
+      // The temp file is owned by THIS process; renaming it would hand the bundle to
+      // this account. Keep the original owner, or refuse (fchown throws EPERM when we
+      // may not give the file back) rather than silently change ownership.
+      if (process.platform !== "win32" && typeof process.getuid === "function" && (uid !== process.getuid() || gid !== process.getgid!())) fchownSync(fd, uid, gid);
+      fchmodSync(fd, mode);                            // open() mode is masked by the umask; restore exactly
+    }
     writeFully(fd, Buffer.from(data, "utf8"), write);
     fsyncSync(fd);
     closeSync(fd); fd = undefined;
     renameSync(tmp, path);
+    fsyncDir(dirname(path));                                      // make the rename itself durable
   } catch (e) {
     if (fd !== undefined) { try { closeSync(fd); } catch { /* already closed */ } }
     try { unlinkSync(tmp); } catch { /* temp already gone */ }
