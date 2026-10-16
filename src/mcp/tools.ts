@@ -23,6 +23,7 @@ export function bundleId(bundle: AtlasBundle): string {
     product: bundle.product,
     repository: bundle.repository,
     graph: bundle.graph,                 // nodes + edges + diagnostics
+    coverage: bundle.coverage ?? null,   // overview() exposes scan coverage
     sources: bundle.sources ?? null,
     findings: bundle.findings ?? null,
     course: bundle.course ?? null,
