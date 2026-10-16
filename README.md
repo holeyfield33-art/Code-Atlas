@@ -180,3 +180,30 @@ host call is checked against a read-only allowlist (there is **no** write path â
 timeout plus a memory cap bound every run. Each run returns a replayable receipt
 (`sha256` of selector + code + bundle), so the same query over the same bundle is
 reproducible â€” the grounding guarantee, extended to free-form reads.
+
+### Streamable HTTP (read-only by default)
+
+stdio is the default and needs nothing else. For an agent that connects over HTTP:
+
+```bash
+export ATLAS_MCP_API_KEY=$(node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))")
+code-atlas-mcp --http --bundle atlas/atlas.bundle.json        # http://127.0.0.1:8000/mcp
+```
+
+Windows PowerShell: `$env:ATLAS_MCP_API_KEY = node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('hex'))"`.
+Clients send `Authorization: Bearer <key>`; `GET /healthz` is unauthenticated.
+
+What it enforces, on every request, in this order:
+
+| Control | Behaviour |
+|---|---|
+| Loopback bind | Binds `127.0.0.1`. A non-loopback `--host` is refused unless you pass `--allow-remote` (and put TLS in front). |
+| Host allowlist | `localhost`, `127.0.0.1`, `::1` and the bind host. Anything else gets `403` (defeats DNS rebinding). Add a public name with `--allowed-host` / `ATLAS_ALLOWED_HOSTS`. |
+| Origin allowlist | A browser `Origin` is refused unless listed (`--allowed-origin` / `ATLAS_ALLOWED_ORIGINS`). No CORS headers are ever sent. |
+| Auth | Bearer key, 32+ characters, constant-time compare, checked before the body is read. |
+| Rate limits | 300 requests/min per client; 10 failed authentications/min per client, then `429`. Behind a reverse proxy every client shares the proxy's address, so rate-limit there too. |
+| Read-only | `atlas_triage` is **not registered** over HTTP unless you pass `--allow-triage`. |
+| Bounds | 1 MB request body; header/request timeouts. |
+
+The bundle contains your source: treat the key as a credential and don't expose the
+port to a network you don't trust. Rotating the key means restarting the server.
