@@ -29,9 +29,12 @@ tmp/
 *.tmp
 *.bak
 *.orig
-scripts/_*
-tests/_*
-src/**/_*
+# Known throwaway prefixes only — a real `_helpers.ts` module must stay tracked.
+_old_*
+_repro*
+_debug*
+_scratch*
+_tmp*
 transcripts/
 *.transcript.md
 CONVERSATION*.md
