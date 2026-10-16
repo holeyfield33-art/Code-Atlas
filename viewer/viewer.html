@@ -15,6 +15,7 @@
     --k-contains:#5a6b7d; --k-imports:#6aa2ff; --k-calls:#57c98a;
     --grade-red:#e5484d; --grade-yellow:#e0a356; --grade-green:#57c98a; --grade-gray:#56657a;
     --grade-lead:#8b7fb8;             /* unverified static lead — muted, subordinate to red */
+    --grade-control:#6f9e8c;          /* control PRESENT but unverified — muted, subordinate to green */
     --radius:10px; --rail-h:112px;
     --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
     --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
@@ -400,12 +401,14 @@ const state = {
   findingByNode:new Map(), blast:new Set(), asi:null, hasFindings:false, sources:new Map()
 };
 
-const GRADECSS = { red:"--grade-red", lead:"--grade-lead", yellow:"--grade-yellow", green:"--grade-green", gray:"--grade-gray" };
+const GRADECSS = { red:"--grade-red", lead:"--grade-lead", yellow:"--grade-yellow", green:"--grade-green", control:"--grade-control", gray:"--grade-gray" };
 const VERIFIED = g => g==="OBSERVED" || g==="TESTED";
 function gradeOf(nodeId){
   const f = state.findingByNode.get(nodeId);
   if(f){
-    if(f.kind==="control") return "green";
+    // green = control VERIFIED effective (OBSERVED/TESTED); control = control present but
+    // unverified (STATIC/INFERRED) — a muted green, never the full hardened colour.
+    if(f.kind==="control") return VERIFIED(f.grade) ? "green" : "control";
     return VERIFIED(f.grade) ? "red" : "lead";   // red = verified weakness; lead = unverified static match
   }
   if(state.blast.has(nodeId)) return "yellow";
@@ -535,7 +538,7 @@ function connRows(n){
   const inf = nb.inf || new Set();
   const row = (lab, ids, markInferred)=> ids && ids.length
     ? `<div class="conn-row"><span class="lab">${lab}</span><span class="vals">${
-        ids.map(id=>`<b data-goto="${id}">${esc(labelFor(id))}</b>${markInferred&&inf.has(id)?`<span class="inf" title="Name-based match — a real call site to the only definition of this name, but not proven to be the callee.">inferred</span>`:""}`).join(", ")}</span></div>` : "";
+        ids.map(id=>`<b data-goto="${esc(id)}">${esc(labelFor(id))}</b>${markInferred&&inf.has(id)?`<span class="inf" title="Name-based match — a real call site to the only definition of this name, but not proven to be the callee.">inferred</span>`:""}`).join(", ")}</span></div>` : "";
   let out = "";
   if(n.kind==="file"){
     out += row("contains", nb.contains);
@@ -636,7 +639,7 @@ function wireSource(){
 }
 
 /* ---- Security section: color-graded finding + ASI context + live link -----*/
-const GRADE_LABEL = { red:"WEAKNESS (VERIFIED)", lead:"UNVERIFIED LEAD", yellow:"POSSIBLY AFFECTED", green:"HARDENED CONTROL", gray:"UNASSESSED" };
+const GRADE_LABEL = { red:"WEAKNESS (VERIFIED)", lead:"UNVERIFIED LEAD", yellow:"POSSIBLY AFFECTED", green:"HARDENED CONTROL", control:"CONTROL (UNVERIFIED)", gray:"UNASSESSED" };
 function asiStamp(){
   if(!state.asi) return "";
   return `<p class="asi-stamp">ASI ${esc(state.asi.revision)} · snapshot as of ${esc(state.asi.asOf)} · the live link is the source of truth.</p>`;
@@ -676,7 +679,7 @@ function securitySection(n){
     // trust a raw radius on a static/inferred lead (a loaded third-party bundle may
     // carry one), or the panel would contradict its own "casts no blast radius" note.
     const affected = (f.kind==="weakness" && VERIFIED(f.grade) && !ACCEPTED(f) && f.blastRadius && f.blastRadius.length)
-      ? `<div class="conn-row"><span class="lab">may affect</span><span class="vals">${f.blastRadius.map(id=>`<b data-goto="${id}">${esc(labelFor(id))}</b>`).join(", ")}</span></div>` : "";
+      ? `<div class="conn-row"><span class="lab">may affect</span><span class="vals">${f.blastRadius.map(id=>`<b data-goto="${esc(id)}">${esc(labelFor(id))}</b>`).join(", ")}</span></div>` : "";
     return `<div class="sec">
       <div class="sec-head"><span class="grade-pill" style="background:var(${GRADECSS[g]})">${GRADE_LABEL[g]}</span><span class="grade-ev">${esc(f.grade)}</span></div>
       <p class="sec-title">${esc(f.title)}</p>
@@ -687,7 +690,9 @@ function securitySection(n){
         ? (g==="lead"
             ? `<p class="sec-note">Unverified static lead — a pattern match, <b>not</b> a confirmed weakness, and it casts no blast radius. Verify it (reproduce at runtime) before acting; only OBSERVED/TESTED findings mark components as possibly-affected.</p>`
             : `<p class="sec-note">Verified weakness. ${(f.blastRadius&&f.blastRadius.length&&!ACCEPTED(f))?"The affected components are shown as possibly-affected, not proven paths.":""}</p>`)
-        : `<p class="sec-note">Hardened does not mean universally safe — only that this control was evaluated against the stated threat.</p>`}
+        : (g==="green"
+            ? `<p class="sec-note">Verified control — evaluated against the stated threat. Hardened does not mean universally safe.</p>`
+            : `<p class="sec-note">Control <b>present but unverified</b> — the artifact was found statically, not confirmed effective. A reviewer must verify it actually guards the relevant surface before relying on it.</p>`)}
       ${dispositionNote(f)}
       ${asiStamp()}</div>`;
   }
@@ -832,8 +837,10 @@ function updateLegend(){
   if(state.mode==="security"){
     el.innerHTML = state.hasFindings
       ? `<span><i class="sq" style="background:var(--grade-red)"></i><b>weakness</b></span>
+         <span><i class="sq" style="background:var(--grade-lead)"></i><b>unverified lead</b></span>
          <span><i class="sq" style="background:var(--grade-yellow)"></i><b>possibly affected</b></span>
          <span><i class="sq" style="background:var(--grade-green)"></i><b>hardened</b></span>
+         <span><i class="sq" style="background:var(--grade-control)"></i><b>control (unverified)</b></span>
          <span><i class="sq" style="background:var(--grade-gray)"></i><b>unassessed</b></span>`
       : `<span><i class="sq" style="background:var(--grade-gray)"></i><b>unassessed — no findings attached</b></span>`;
   } else {
