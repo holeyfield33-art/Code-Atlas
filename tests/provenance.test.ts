@@ -10,14 +10,14 @@
  */
 import assert from "node:assert";
 import { spawnSync, execSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, existsSync, chmodSync, statSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseBundle } from "../src/schema.js";
 import { AtlasTools } from "../src/mcp/tools.js";
 import { runAtlasExec } from "../src/mcp/sandbox.js";
-import { writeFileAtomic } from "../src/atomicWrite.js";
+import { writeFileAtomic, writeFully } from "../src/atomicWrite.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const bundlePath = resolve(repoRoot, "atlas/atlas.bundle.json");
@@ -58,6 +58,22 @@ const asDir = join(dir, "isdir"); mkdirSync(asDir);
 assert.throws(() => writeFileAtomic(asDir, "x"), "renaming over a directory fails");
 assert.deepStrictEqual(readdirSync(dir).sort(), ["bundle.json", "isdir"], "a failed write cleans up its temp file");
 assert.strictEqual(readFileSync(target, "utf8"), '{"v":2}', "other files are untouched by a failed write");
+
+// short writes: a write that returns fewer bytes than asked must be continued, and a stalled one must abort BEFORE the rename
+const partial: typeof writeSync = ((fd: number, buf: Buffer, off: number, len: number) => writeSync(fd, buf, off, Math.min(len, 3))) as any;
+writeFileAtomic(target, '{"v":3,"pad":"0123456789"}', partial);
+assert.strictEqual(readFileSync(target, "utf8"), '{"v":3,"pad":"0123456789"}', "a writer that returns 3 bytes at a time still persists the whole file");
+const stalled: typeof writeSync = (() => 0) as any;
+assert.throws(() => writeFileAtomic(target, '{"v":4}', stalled), /short write/, "a stalled writer aborts instead of renaming a truncated file");
+assert.strictEqual(readFileSync(target, "utf8"), '{"v":3,"pad":"0123456789"}', "the original survives an aborted write");
+assert.deepStrictEqual(readdirSync(dir).sort(), ["bundle.json", "isdir"], "no temp file after an aborted write");
+assert.throws(() => writeFully(1, Buffer.from("x"), (() => 0) as any), /short write/);
+
+// permissions: the replacement keeps the existing mode (POSIX; Windows only models read-only)
+if (process.platform !== "win32") {
+  chmodSync(target, 0o644); writeFileAtomic(target, "{}");
+  assert.strictEqual(statSync(target).mode & 0o777, 0o644, "an existing 0644 bundle stays 0644");
+}
 
 // ---- P2: UTF-8 byte cap -------------------------------------------------------
 const tools = new AtlasTools(bundle);

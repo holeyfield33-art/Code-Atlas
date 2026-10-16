@@ -3,17 +3,35 @@
  * then rename over the target. A crash or full disk mid-write leaves the original
  * file intact (never truncated or half-written JSON); the temp file is removed on
  * failure. Same-directory keeps the rename on one filesystem, so it is atomic.
+ *
+ *  - writeSync may write FEWER bytes than requested without throwing (e.g. a nearly
+ *    full disk), so we loop until every byte is written and abort before the rename
+ *    if no progress is made.
+ *  - The replacement keeps the existing file's permission bits (a 0644 bundle stays
+ *    0644); a brand-new file gets 0600.
  */
-import { openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync } from "node:fs";
+import { openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync, statSync } from "node:fs";
 import { dirname, basename, join } from "node:path";
 import { randomBytes } from "node:crypto";
 
-export function writeFileAtomic(path: string, data: string): void {
+/** Write every byte of `buf` to `fd`, or throw. Exported for testing short writes. */
+export function writeFully(fd: number, buf: Buffer, write: typeof writeSync = writeSync): void {
+  let off = 0;
+  while (off < buf.length) {
+    const n = write(fd, buf, off, buf.length - off);
+    if (n <= 0) throw new Error(`short write: ${off}/${buf.length} bytes written`);
+    off += n;
+  }
+}
+
+export function writeFileAtomic(path: string, data: string, write: typeof writeSync = writeSync): void {
+  let mode = 0o600;
+  try { mode = statSync(path).mode & 0o7777; } catch { /* new file: keep 0600 */ }
   const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
   let fd: number | undefined;
   try {
-    fd = openSync(tmp, "wx", 0o600);
-    writeSync(fd, data);
+    fd = openSync(tmp, "wx", mode);
+    writeFully(fd, Buffer.from(data, "utf8"), write);
     fsyncSync(fd);
     closeSync(fd); fd = undefined;
     renameSync(tmp, path);
