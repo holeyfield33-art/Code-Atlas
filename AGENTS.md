@@ -9,10 +9,9 @@ conversation content kept landing in the working tree.
   backups, and copies of old code go in `.scratch/` (gitignored) or the OS temp
   directory, never in `src/`, `tests/`, `scripts/`, or `docs/`.
 - Delete scratch files when the task is done. Do not leave `_old_*`, `_repro*`,
-  `*.bak`, or similar files behind. `.gitignore` catches only a few known
-  throwaway prefixes (`_old_*`, `_repro*`, `_debug*`, `_scratch*`, `_tmp*`) so
-  that real underscore-named modules stay tracked — it is a backstop, not a
-  substitute for using `.scratch/`.
+  `*.bak`, or similar files behind. `.gitignore` catches only two known
+  throwaway prefixes (`_old_*`, `_repro*`) so that real underscore-named
+  modules stay tracked — it is a backstop, not a substitute for `.scratch/`.
 - A file belongs in the repo only if it is product code, a real test, or user-facing
   documentation that the owner asked for.
 

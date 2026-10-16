@@ -14,9 +14,10 @@ node_modules/
 /*.bundle.json
 
 # ---- personal / local-only material: never commit --------------------------
-# Audits and dogfood logs reference local checkouts, machines, and evidence.
+# Local audits and the MCP dogfood run log reference local checkouts, machines,
+# and evidence. New run logs go in docs/audits/ or atlas/.
 /docs/audits/
-/docs/*dogfood*.md
+/docs/mcp-dogfood.md
 /notes/
 .env
 .env.*
@@ -28,7 +29,6 @@ node_modules/
 !.env.*.example
 !.env.*.sample
 !.env.*.template
-*.local.*
 .claude/settings.local.json
 /.astra/
 /.agent/
@@ -40,12 +40,10 @@ node_modules/
 *.tmp
 *.bak
 *.orig
-# Known throwaway prefixes only — a real `_helpers.ts` module must stay tracked.
+# Known throwaway prefixes only (old-code copies, repros) — real `_helpers.ts`-style
+# modules stay tracked; anything else throwaway belongs in .scratch/.
 _old_*
 _repro*
-_debug*
-_scratch*
-_tmp*
 # Conversation transcripts: only the dedicated folder or an explicit suffix,
 # never a basename like PROMPT*.md that a real doc could use.
 /transcripts/
