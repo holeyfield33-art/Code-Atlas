@@ -32,8 +32,8 @@ assert.strictEqual(cov.skipped.tooLarge, 1, "the oversized file is counted");
 assert.ok(cov.skipped.unsupported >= 1, "the .md file is counted as unsupported");
 assert.strictEqual(cov.skipped.symlink, 1, "the symlink is counted (and never followed)");
 assert.strictEqual(cov.skipped.ignoredDir, 1, "the ignored directory is counted");
-// every regular file under the cap-independent reasons was actually seen
-assert.strictEqual(cov.totalFilesSeen, 4, "app.py + helper.py + big.py + README.md were all seen");
-// node_modules/dep.js was pruned, so it is NOT in totalFilesSeen (dir pruned at the boundary)
+assert.strictEqual(cov.skipped.ignoredDirFiles, 1, "the file inside node_modules is counted (not silently invisible)");
+// walked files (outside ignored dirs); the ignored-dir file is counted separately
+assert.strictEqual(cov.totalFilesSeen, 4, "app.py + helper.py + big.py + README.md were all walked");
 
 console.log(`coverage.test: analyzed ${cov.scannedFiles}/${cov.totalFilesSeen}; skipped ${JSON.stringify(cov.skipped)} — every omission counted by reason`);

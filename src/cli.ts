@@ -64,9 +64,18 @@ program
     const cov = bundle.coverage;
     if (cov) {
       const s = cov.skipped;
-      const omitted = s.unsupported + s.tooLarge + s.overCap + s.symlink;
-      console.log(`  coverage: analyzed ${cov.scannedFiles}/${cov.totalFilesSeen} files` +
-        (omitted ? ` — skipped ${s.unsupported} unsupported, ${s.tooLarge} too-large, ${s.overCap} over the ${cov.maxFiles}-file cap, ${s.symlink} symlink` : ""));
+      // every skip reason is in the sum + the breakdown, so the line never reads
+      // "analyzed N/N" while files were pruned by an ignored dir or an unreadable entry.
+      const omitted = s.unsupported + s.tooLarge + s.overCap + s.symlink + s.ignoredDir + s.ignoredDirFiles + s.unreadable;
+      const parts = [
+        s.unsupported && `${s.unsupported} unsupported`,
+        s.tooLarge && `${s.tooLarge} too-large`,
+        s.overCap && `${s.overCap} over the ${cov.maxFiles}-file cap`,
+        s.symlink && `${s.symlink} symlink`,
+        s.ignoredDirFiles && `${s.ignoredDirFiles} in ${s.ignoredDir} ignored dir(s)`,
+        s.unreadable && `${s.unreadable} unreadable`,
+      ].filter(Boolean).join(", ");
+      console.log(`  coverage: analyzed ${cov.scannedFiles}/${cov.totalFilesSeen} walked files` + (omitted ? ` — skipped ${parts}` : ""));
       if (s.overCap) console.log(`  NOTE: ${s.overCap} supported file(s) were omitted by the --max-files cap (${cov.maxFiles}); raise it to include them.`);
     }
     console.log(`  Open ${join(opts.out, "viewer.html")} in a browser.`);

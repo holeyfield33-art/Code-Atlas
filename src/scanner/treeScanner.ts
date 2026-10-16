@@ -42,7 +42,8 @@ export interface ScanCoverage {
     tooLarge: number;          // over maxBytes
     overCap: number;           // would have been analyzed, but the file cap was reached
     symlink: number;           // a symlink (never followed — containment)
-    ignoredDir: number;        // a directory pruned by the ignore list
+    ignoredDir: number;        // directories pruned by the ignore list
+    ignoredDirFiles: number;   // regular files inside those pruned directories (counted, not analyzed)
     unreadable: number;        // lstat/readdir failed, or a non-file/non-dir entry
   };
 }
@@ -51,8 +52,24 @@ export function scanWorkspace(root: string, opts: ScanOptions = {}): { files: Sc
   const maxFiles = opts.maxFiles ?? 2000;
   const maxBytes = opts.maxBytes ?? 200_000;
   const files: ScannedFile[] = [];
-  const skipped = { unsupported: 0, tooLarge: 0, overCap: 0, symlink: 0, ignoredDir: 0, unreadable: 0 };
+  const skipped = { unsupported: 0, tooLarge: 0, overCap: 0, symlink: 0, ignoredDir: 0, ignoredDirFiles: 0, unreadable: 0 };
   let totalFilesSeen = 0;
+
+  // Count-only pass over a pruned directory: tally its regular files (never
+  // following symlinks, never reading) so an ignored tree's contents are
+  // accounted for rather than silently invisible.
+  const countTree = (dir: string): number => {
+    let n = 0, entries: string[];
+    try { entries = readdirSync(dir); } catch { return n; }
+    for (const name of entries) {
+      const abs = join(dir, name);
+      let st; try { st = lstatSync(abs); } catch { continue; }
+      if (st.isSymbolicLink()) continue;
+      if (st.isDirectory()) { n += countTree(abs); continue; }
+      if (st.isFile()) n++;
+    }
+    return n;
+  };
 
   // NOTE: we keep walking after the file cap is hit so every omitted file is
   // counted (as overCap) rather than the traversal silently stopping.
@@ -60,7 +77,6 @@ export function scanWorkspace(root: string, opts: ScanOptions = {}): { files: Sc
     let entries: string[];
     try { entries = readdirSync(dir); } catch { skipped.unreadable++; return; }
     for (const name of entries) {
-      if (IGNORE_DIRS.has(name)) { skipped.ignoredDir++; continue; }
       const abs = join(dir, name);
       let st;
       // lstat (not stat) so we see the link itself, not its target. A symlink is
@@ -68,7 +84,12 @@ export function scanWorkspace(root: string, opts: ScanOptions = {}): { files: Sc
       // link (e.g. leak.ts -> /etc/passwd) from pulling host files into the bundle.
       try { st = lstatSync(abs); } catch { skipped.unreadable++; continue; }
       if (st.isSymbolicLink()) { skipped.symlink++; continue; }
-      if (st.isDirectory()) { walk(abs); continue; }
+      if (st.isDirectory()) {
+        // An ignored directory is pruned from analysis but its files are COUNTED,
+        // so coverage never claims completeness while a tree was dropped.
+        if (IGNORE_DIRS.has(name)) { skipped.ignoredDir++; skipped.ignoredDirFiles += countTree(abs); continue; }
+        walk(abs); continue;
+      }
       if (!st.isFile()) { skipped.unreadable++; continue; }
       totalFilesSeen++;
       if (st.size > maxBytes) { skipped.tooLarge++; continue; }

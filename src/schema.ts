@@ -243,7 +243,7 @@ export const AtlasBundleSchema = z.object({
     maxBytes: z.number(),
     skipped: z.object({
       unsupported: z.number(), tooLarge: z.number(), overCap: z.number(),
-      symlink: z.number(), ignoredDir: z.number(), unreadable: z.number(),
+      symlink: z.number(), ignoredDir: z.number(), ignoredDirFiles: z.number(), unreadable: z.number(),
     }),
   }).optional(),
   diagnostics: z.array(z.object({ stage: z.string(), message: z.string() })).default([]),
