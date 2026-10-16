@@ -15,11 +15,13 @@
  *  - The replacement keeps the existing file's EXACT permission bits (a 0644 bundle
  *    stays 0644 even under a restrictive umask: applied with fchmod after open);
  *    a brand-new file gets 0600.
+ *  - The original owner/group are preserved (POSIX); if this process may not restore
+ *    them the write fails instead of silently transferring ownership.
  *  - A read-only existing target is rejected up front: replacing via rename is
  *    governed by the directory's permissions, so without this check a 0444 bundle
  *    would be silently overwritten (writeFileSync used to fail on it).
  */
-import { openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync, statSync, realpathSync, accessSync, fchmodSync, constants } from "node:fs";
+import { openSync, writeSync, fsyncSync, closeSync, renameSync, unlinkSync, statSync, realpathSync, accessSync, fchmodSync, fchownSync, constants } from "node:fs";
 import { dirname, basename, join } from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -44,14 +46,20 @@ function fsyncDir(dir: string): void {
 export function writeFileAtomic(linkPath: string, data: string, write: typeof writeSync = writeSync): void {
   let path = linkPath;
   try { path = realpathSync(linkPath); } catch { /* does not exist yet: write the path as given */ }
-  let mode = 0o600, existed = false;
-  try { mode = statSync(path).mode & 0o7777; existed = true; } catch { /* new file: keep 0600 */ }
+  let mode = 0o600, existed = false, uid = -1, gid = -1;
+  try { const st = statSync(path); mode = st.mode & 0o7777; uid = st.uid; gid = st.gid; existed = true; } catch { /* new file: keep 0600 */ }
   if (existed) accessSync(path, constants.W_OK);                 // throws EACCES/EPERM on a read-only target
   const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
   let fd: number | undefined;
   try {
     fd = openSync(tmp, "wx", mode);
-    if (existed) fchmodSync(fd, mode);                            // open() mode is masked by the umask; restore exactly
+    if (existed) {
+      // The temp file is owned by THIS process; renaming it would hand the bundle to
+      // this account. Keep the original owner, or refuse (fchown throws EPERM when we
+      // may not give the file back) rather than silently change ownership.
+      if (process.platform !== "win32" && typeof process.getuid === "function" && (uid !== process.getuid() || gid !== process.getgid!())) fchownSync(fd, uid, gid);
+      fchmodSync(fd, mode);                            // open() mode is masked by the umask; restore exactly
+    }
     writeFully(fd, Buffer.from(data, "utf8"), write);
     fsyncSync(fd);
     closeSync(fd); fd = undefined;
