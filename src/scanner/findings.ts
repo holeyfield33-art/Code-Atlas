@@ -17,6 +17,7 @@ import type { AtlasGraph, Finding, AsiSnapshot } from "../schema.js";
 import { DEFAULT_RULES, compileNameMatcher, type Rule } from "./rules.js";
 import { ASI_BASE, CATEGORY_TO_AAC, asiRefFor, asiClassFor } from "./asi.js";
 import type { SourceFile } from "./graph.js";
+import { classMemberLabel } from "./jsNames.js";
 
 const traverse: any = (typeof _traverse === "function" ? _traverse : (_traverse as any).default);
 
@@ -33,13 +34,31 @@ function functionSources(code: string): Map<string, string> {
       if (p.node.id?.type === "Identifier" && (p.node.init?.type === "ArrowFunctionExpression" || p.node.init?.type === "FunctionExpression"))
         add(p.node.id.name, p.node.start, p.node.end);
     },
+    // class members, keyed `Class.member` exactly as the graph builder labels them
+    ClassMethod(p: any) { const l = classMemberLabel(p); if (l) add(l, p.node.start, p.node.end); },
+    ClassPrivateMethod(p: any) { const l = classMemberLabel(p); if (l) add(l, p.node.start, p.node.end); },
+    ClassProperty(p: any) { const l = classMemberLabel(p); if (l) add(l, p.node.start, p.node.end); },
   });
   return out;
 }
 
 // freeOnly: match a FREE/imported call `name(` but not a method call `x.name(`.
+// A DOTTED token (`fs.writeFileSync`, `db.exec`) names its receiver, so it is specific
+// enough to match as a method call too (and after `this.`): the free-call restriction
+// exists only to stop a bare `exec`/`query` matching `regex.exec(...)` / `arr.query(...)`.
 const callsName = (src: string, name: string, freeOnly = false) =>
-  new RegExp((freeOnly ? "(?<!\\.)" : "") + "\\b" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\(").test(src);
+  new RegExp((freeOnly && !name.includes(".") ? "(?<!\\.)" : (name.includes(".") ? "(?<![\\w$])" : "")) + "\\b" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\(").test(src);
+
+/** Rule conditions on the function's name/text that are not calls. `nameNotMatches`
+ *  removes protective names (a redactor is not a secret leak); `textAny` requires one of
+ *  the substrings in the body (e.g. a request-input marker). Both are plain, linear-time
+ *  checks; `textAny` is substring-level, so it can be met by a comment or string: it is
+ *  one signal among several, never proof. */
+function nameTextOk(when: Rule["when"], fnName: string, body: string): boolean {
+  if (when.nameNotMatches && compileNameMatcher(when.nameNotMatches)(fnName)) return false;
+  if (when.textAny && !when.textAny.some((t) => body.includes(t))) return false;
+  return true;
+}
 
 /** A blast radius is drawn only for a VERIFIED finding. A static/inferred lead
  *  propagates nothing: painting neighbours "possibly affected" from an unverified
@@ -56,6 +75,7 @@ function matches(when: Rule["when"], fnName: string, rawSrc: string, kind: Rule[
   const src = rawSrc.replace(/\bJSON\.parse(\s*\()/g, "JSON_parse$1");
   const freeOnly = kind === "weakness";
   if (when.nameMatches && !compileNameMatcher(when.nameMatches)(fnName)) return false;
+  if (!nameTextOk(when, fnName, src)) return false;
   if (when.callsAny && !when.callsAny.some((n) => callsName(src, n, freeOnly))) return false;
   if (when.callsNoneOf && when.callsNoneOf.some((n) => callsName(src, n))) return false;        // guards: any call form
   if (when.guardText && when.guardText.some((t) => src.includes(t))) return false;              // keyword-arg guards
@@ -88,6 +108,7 @@ const anyCall = (tokens: string[], ruleTokens: string[]) =>
  *  finding (e.g. an explicit `SafeLoader=`), so a lenient check is conservative. */
 function matchesGeneric(when: Rule["when"], fnName: string, callTokens: string[], bodySrc: string): boolean {
   if (when.nameMatches && !compileNameMatcher(when.nameMatches)(fnName)) return false;
+  if (!nameTextOk(when, fnName, bodySrc)) return false;
   if (when.callsAny && !anyCall(callTokens, when.callsAny)) return false;
   if (when.callsNoneOf && anyCall(callTokens, when.callsNoneOf)) return false;                  // guard CALLS
   if (when.guardText && when.guardText.some((t) => bodySrc.includes(t))) return false;          // keyword-arg guards
