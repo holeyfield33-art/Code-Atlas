@@ -12,6 +12,7 @@ import { dirname, resolve } from "node:path";
 import { parse } from "@babel/parser";
 import _traverse from "@babel/traverse";
 import type { AtlasGraph, AtlasNode, AtlasEdge, Evidence } from "../schema.js";
+import { classMemberLabel } from "./jsNames.js";
 
 const traverse: any =
   (typeof _traverse === "function" ? _traverse : (_traverse as any).default);
@@ -73,6 +74,14 @@ export function buildGraph(revision: string, sources: SourceFile[]): AtlasGraph 
     try { ast = parseTs(f.code); }
     catch { graph.diagnostics.push({ path: f.path, message: "Parse failed; relationships unavailable" }); continue; }
 
+    const addClassMember = (p: any) => {
+      const label = classMemberLabel(p);
+      if (!label) return;
+      const nid = fnId(f.path, label, p.node.start);
+      graph.nodes.push({ id: nid, kind: "function", label, evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, hashSrc) });
+      graph.edges.push({ id: id(fid + ":contains:" + nid), from: fid, to: nid, kind: "contains", evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, hashSrc) });
+    };
+
     traverse(ast, {
       FunctionDeclaration(p: any) {
         if (!p.node.id) return;
@@ -89,6 +98,12 @@ export function buildGraph(revision: string, sources: SourceFile[]): AtlasGraph 
         graph.nodes.push({ id: nid, kind: "function", label: p.node.id.name, evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, hashSrc) });
         graph.edges.push({ id: id(fid + ":contains:" + nid), from: fid, to: nid, kind: "contains", evidence: ev(f.path, p.node.loc.start.line, p.node.loc.start.column + 1, hashSrc) });
       },
+      // Class members become function nodes labelled `Class.member`. They get no call
+      // edges (a `this.x()` / `obj.x()` receiver is not resolved), but the map and the
+      // rule scanner now see them: a class's file writes and DB calls used to be invisible.
+      ClassMethod(p: any) { addClassMember(p); },
+      ClassPrivateMethod(p: any) { addClassMember(p); },
+      ClassProperty(p: any) { addClassMember(p); },
       ImportDeclaration(p: any) {
         const spec = p.node.source.value;
         const target = resolveImport(f.path, spec, known);

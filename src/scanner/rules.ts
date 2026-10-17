@@ -18,6 +18,12 @@ export interface RuleWhen {
   callsNoneOf?: string[];
   /** Function name matches this regex (case-insensitive). */
   nameMatches?: string;
+  /** ...and the name does NOT match this regex (case-insensitive). Removes protective
+   *  names so a redactor/validator is not reported as the leak it guards against. */
+  nameNotMatches?: string;
+  /** The body text contains at least one of these substrings (e.g. `req.body`). Plain
+   *  substring match, so a comment can satisfy it: one signal among several. */
+  textAny?: string[];
   /** Suppress the finding if any of these substrings appears in the body text.
    *  For guards that are NOT calls (e.g. a keyword argument `Loader=SafeLoader`),
    *  which call-token matching can't see. Only ever REMOVES a finding, so a
@@ -42,15 +48,52 @@ const asi = (id: string, _label?: string, _mit?: string) =>
   ({ id, label: AAC[id]?.label ?? id, mitigation: AAC[id]?.mitigation ?? "", url: asiUrl(id) });
 
 /** The default pack — a few honest structural leads, ASI-linked to real classes. */
+// Sink vocabularies. Bare names match only FREE (imported) calls; dotted names match the
+// real-world method form (`fs.writeFileSync(`, `this.db.exec(`) because the receiver is
+// part of the token. A bare `exec`/`run`/`query` still cannot match `regex.exec(`.
+const FILE_WRITE_SINKS = ["writeFileSync", "writeFile", "appendFileSync", "appendFile", "createWriteStream", "rmSync", "unlinkSync",
+  "fs.writeFile", "fs.writeFileSync", "fs.appendFile", "fs.appendFileSync", "fs.createWriteStream", "fs.rm", "fs.rmSync",
+  "fs.unlink", "fs.unlinkSync", "fs.promises.writeFile", "fsp.writeFile"];
+const PROCESS_SINKS = ["exec", "execSync", "execFile", "execFileSync", "spawn", "spawnSync",
+  "child_process.exec", "child_process.execSync", "child_process.execFile", "child_process.spawn", "child_process.spawnSync",
+  "cp.exec", "cp.execSync", "cp.spawn", "cp.spawnSync"];
+const EVAL_SINKS = ["eval", "Function"];
+// Database calls. `DB_FREE` are the original bare free-call sinks. `DB_METHODS` (receiver-
+// qualified) are NOT treated as sinks on their own: most are constant, parameterised SQL
+// (`db.prepare("SELECT version FROM schema_version")`), and flagging them drowned real
+// findings in calibration. They count only where request input is read in the same function.
+const DB_FREE = ["query", "run"];
+const DB_METHODS = ["db.exec", "db.run", "db.prepare", "db.query", "pool.query", "client.query", "knex.raw", "sequelize.query"];
+const DB_SINKS = [...DB_FREE, ...DB_METHODS];
+const FILE_READ_SINKS = ["readFileSync", "readFile", "createReadStream", "sendFile",
+  "fs.readFile", "fs.readFileSync", "fs.createReadStream", "fs.promises.readFile", "fsp.readFile", "res.sendFile", "reply.sendFile"];
+const NETWORK_SINKS = ["fetch", "axios", "got", "http.request", "https.request", "http.get", "https.get"];
+const VALIDATORS = ["validate", "sanitize", "assert", "check", "guard", "parse", "safeParse", "zod", "schema"];
+
 export const DEFAULT_RULES: Rule[] = [
+  {
+    // Listed first so it is the finding a viewer shows when a function matches both rules.
+    id: "r-input-to-sink", kind: "weakness", grade: "STATIC",
+    title: "Request input and a high-impact operation in one function, with no visible validation",
+    explanation:
+      "This function reads request data (req/request .body, .query, .params or .headers) and also reaches a high-impact operation (file write or read, process exec, eval, database call, or outbound request), and no validation or guard call is visible inside it. Static lead — it does not prove the request data reaches that operation, or that it is attacker-controlled; trace it before acting. Handlers written as inline callbacks inside a larger function are judged as part of that function.",
+    when: {
+      textAny: ["req.body", "req.query", "req.params", "req.headers", "request.body", "request.query", "request.params", "request.headers"],
+      callsAny: [...FILE_WRITE_SINKS, ...PROCESS_SINKS, ...EVAL_SINKS, ...DB_SINKS, ...FILE_READ_SINKS, ...NETWORK_SINKS],
+      callsNoneOf: VALIDATORS,
+    },
+    blast: "callers",
+    asi: asi("AAC-11", "High-impact action without constraint",
+      "Validate and constrain request input at the trust boundary before it reaches a file, process, query or outbound request."),
+  },
   {
     id: "r-unguarded-sink", kind: "weakness", grade: "STATIC",
     title: "High-impact sink with no visible validator",
     explanation:
       "This function reaches a high-impact sink (file write, process exec, eval, or query) and no validation or guard call is visible inside it. Static lead — not proof the input is attacker-controlled or that the path is reachable.",
     when: {
-      callsAny: ["writeFileSync", "writeFile", "exec", "execSync", "spawn", "eval", "Function", "query", "run"],
-      callsNoneOf: ["validate", "sanitize", "assert", "check", "guard", "parse", "safeParse", "zod", "schema"],
+      callsAny: [...FILE_WRITE_SINKS, ...PROCESS_SINKS, ...EVAL_SINKS, ...DB_FREE],
+      callsNoneOf: VALIDATORS,
     },
     blast: "callers",
     asi: asi("AAC-11", "High-impact action without constraint",
@@ -58,10 +101,17 @@ export const DEFAULT_RULES: Rule[] = [
   },
   {
     id: "r-raw-secret", kind: "weakness", grade: "STATIC",
-    title: "Secret-like handling without visible redaction",
+    title: "Secret-like handling that logs, stores or sends data, without visible redaction",
     explanation:
-      "This function's name suggests it handles secret material (token / password / credential / apiKey) and no redaction call is visible inside it. Static lead only.",
-    when: { nameMatches: "(token|secret|password|credential|apikey)", callsNoneOf: ["redact", "sanitize", "mask"] },
+      "This function's name suggests it handles secret material (token / password / credential / apiKey), it logs, writes or sends data, and no redaction call is visible inside it. Functions that look like protection (redact, mask, validate, verify, has/is/check, match, hash) are not reported. Static lead only: a name is a hint, not proof that a secret reaches the log, file or request.",
+    when: {
+      nameMatches: "(token|secret|password|passwd|credential|apikey|api_key|private_?key)",
+      nameNotMatches: "^(redact|mask|sanitize|scrub|strip|hash|validate|verify|is|has|check|assert|ensure|match|compare|safe|fingerprint|encrypt|decrypt)|(matches|match|equals|valid|present|count|length|fingerprint|hash|kind|type)$",
+      callsAny: ["console.log", "console.info", "console.warn", "console.error", "console.debug",
+        "logger.log", "logger.info", "logger.warn", "logger.error", "logger.debug", "log.info", "log.warn", "log.error", "log.debug",
+        ...FILE_WRITE_SINKS, "fetch", "res.send", "res.json", "reply.send", "response.send"],
+      callsNoneOf: ["redact", "sanitize", "mask"],
+    },
     blast: "none",
     asi: asi("AAC-09", "Secret exposure",
       "Redact secrets before logging or persistence; never store raw credentials."),
@@ -234,10 +284,14 @@ export function validateRules(input: unknown): Rule[] {
     if (r.kind !== "weakness" && r.kind !== "control") throw new Error(`Rule ${r.id}: kind must be weakness|control`);
     if (r.grade !== "STATIC" && r.grade !== "INFERRED") throw new Error(`Rule ${r.id}: a static rule's grade must be STATIC or INFERRED`);
     // Compile now so an unsafe/invalid pattern is rejected at LOAD, never at scan time.
-    if (typeof r.when.nameMatches === "string") {
-      try { compileNameMatcher(r.when.nameMatches); }
-      catch (e) { throw new Error(`Rule ${r.id}: ${e instanceof Error ? e.message : e}`); }
+    for (const field of ["nameMatches", "nameNotMatches"] as const) {
+      if (typeof r.when[field] === "string") {
+        try { compileNameMatcher(r.when[field]); }
+        catch (e) { throw new Error(`Rule ${r.id}: ${e instanceof Error ? e.message : e}`); }
+      }
     }
+    if (r.when.textAny !== undefined && (!Array.isArray(r.when.textAny) || r.when.textAny.some((t: unknown) => typeof t !== "string" || !t || (t as string).length > 200)))
+      throw new Error(`Rule ${r.id}: textAny must be an array of non-empty strings (max 200 chars)`);
   }
   return input as Rule[];
 }
