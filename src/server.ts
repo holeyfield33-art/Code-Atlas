@@ -1,11 +1,26 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { buildAtlas } from "./build.js";
 import { fileLanguage, IGNORE_DIRS } from "./scanner/treeScanner.js";
 import { renderViewer } from "./viewer.js";
+import { parseBundle, type AtlasBundle } from "./schema.js";
+
+/** The bundle the page should open on: the file at `path`, re-read on every page load so a
+ *  rebuild shows up without restarting. Missing or invalid => null (the built-in sample), and
+ *  the reason is logged once so a mis-mounted volume is not silent. */
+let lastBundleWarning = "";
+export function loadBundleForPage(path: string | undefined): AtlasBundle | null {
+  if (!path) return null;
+  try { return parseBundle(JSON.parse(readFileSync(path, "utf8"))); }
+  catch (e) {
+    const msg = (e as NodeJS.ErrnoException).code === "ENOENT" ? `no bundle at ${path}; showing the sample graph` : `could not use ${path} (${e instanceof Error ? e.message.slice(0, 120) : e}); showing the sample graph`;
+    if (msg !== lastBundleWarning) { lastBundleWarning = msg; console.warn("Code Atlas:", msg); }
+    return null;
+  }
+}
 
 const MAX_BODY = 32 * 1024 * 1024;
 export interface UploadedFile { path: string; code: string; }
@@ -60,7 +75,12 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-export function createAtlasServer() {
+export interface AtlasServerOptions {
+  /** A built bundle to open the page on (instead of the sample). Re-read on each page load. */
+  bundlePath?: string;
+}
+
+export function createAtlasServer(options: AtlasServerOptions = {}) {
   const token = randomBytes(32).toString("hex");
   let busy = false;
   return createServer(async (req, res) => {
@@ -75,7 +95,7 @@ export function createAtlasServer() {
     if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) { res.writeHead(403).end(); return; }
     if (req.method === "GET" && req.url === "/") {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.end(renderViewer(null, token)); return;
+      res.end(renderViewer(loadBundleForPage(options.bundlePath), token)); return;
     }
     if (req.method !== "POST" || req.url !== "/api/build") { res.writeHead(404).end(); return; }
     if (req.headers.origin !== `http://${host}` || req.headers["x-atlas-token"] !== token) {
@@ -97,15 +117,16 @@ const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
 
 /** `host` defaults to loopback. Binding anything else (e.g. 0.0.0.0 inside a container
  *  whose published port is itself loopback-only) must be asked for with allowRemote. */
-export async function serveAtlas(port = 4173, host = "127.0.0.1", allowRemote = false) {
+export async function serveAtlas(port = 4173, host = "127.0.0.1", allowRemote = false, bundlePath?: string) {
   if (!LOOPBACK.has(host.toLowerCase()) && !allowRemote)
     throw new Error(`Refusing to bind ${host}: this app analyzes local source and has no login. Pass --allow-remote only when something else (e.g. a loopback-only published container port) keeps it private.`);
-  const server = createAtlasServer();
+  const server = createAtlasServer({ bundlePath });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(port, host, resolve);
   });
   console.log(`Code Atlas ready: http://127.0.0.1:${(server.address() as any).port}`);
-  console.log("Open this URL and choose Open folder. Press Ctrl+C to stop.");
+  console.log(bundlePath ? `Opening on the bundle at ${bundlePath} (rebuild it and refresh to update). Choose Open folder to analyze another project. Press Ctrl+C to stop.`
+                         : "Open this URL and choose Open folder. Press Ctrl+C to stop.");
   return server;
 }

@@ -74,13 +74,14 @@ program
   .option("-p, --port <number>", "port", "4173")
   .option("--host <address>", "interface to bind", "127.0.0.1")
   .option("--allow-remote", "permit a non-loopback bind (containers)")
-  .action(async (opts: { port: string; host: string; allowRemote?: boolean }) => {
+  .option("--bundle <file>", "open the page on this built bundle instead of the sample (default: $ATLAS_BUNDLE)")
+  .action(async (opts: { port: string; host: string; allowRemote?: boolean; bundle?: string }) => {
     const port = Number(opts.port);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("Invalid port");
-    await serveAtlas(port, opts.host, Boolean(opts.allowRemote));
+    await serveAtlas(port, opts.host, Boolean(opts.allowRemote), opts.bundle ?? process.env.ATLAS_BUNDLE);
   });
 
 // `code-atlas` with no command opens the local app.
-program.action(async () => { await serveAtlas(); });
+program.action(async () => { await serveAtlas(4173, "127.0.0.1", false, process.env.ATLAS_BUNDLE); });
 
 program.parseAsync().catch((e) => { console.error(String(e?.stack || e)); process.exit(1); });

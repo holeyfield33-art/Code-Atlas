@@ -58,8 +58,11 @@ servers check the `Host` header against the port they serve).
 - `atlas/` (git-ignored): `atlas.bundle.json` and `viewer.html`. It contains your source.
 - `.env` (git-ignored): `ATLAS_MCP_API_KEY` and optional ports. `.env.example` is the
   tracked template with placeholders.
-- The app mode keeps nothing on disk: uploaded folders are analysed in `/tmp` and
-  discarded. Use **Save bundle** in the viewer to keep a result.
+- The `app` opens on your latest `atlas/atlas.bundle.json` (mounted read-only; re-read on
+  every page load, so `build` then refresh shows the new map). With no bundle it shows the
+  built-in sample graph. **Open folder** results live only in that page and are discarded
+  on reload (uploads are analysed in `/tmp`); use **Save bundle** to keep one, or `build`
+  the project so it becomes the default.
 
 ## Linux notes
 

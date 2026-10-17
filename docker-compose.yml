@@ -25,6 +25,11 @@ services:
     command: ["app"]
     environment:
       ATLAS_APP_PORT: "${ATLAS_APP_PORT:-4173}"
+      ATLAS_BUNDLE: /data/atlas.bundle.json
+    volumes:
+      # The page opens on your latest built bundle (read-only) instead of the sample graph,
+      # and a rebuild shows up on refresh. "Open folder" still analyzes any project.
+      - ./atlas:/data:ro
     ports:
       - "127.0.0.1:${ATLAS_APP_PORT:-4173}:${ATLAS_APP_PORT:-4173}"
     healthcheck:
