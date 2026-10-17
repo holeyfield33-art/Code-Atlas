@@ -311,6 +311,20 @@ Use the same command and arguments in each client's stdio form:
 - Rebuilding regenerates findings and **does not carry over triage decisions**; keep a
   copy of a triaged bundle if you need that record.
 
+### Several projects, and next to a live tool
+
+Register one server per project (`atlas.ps1 mcp-config -Project myapp` prints the command; see
+[docker.md](docker.md#several-projects-at-once)). Each shows up to the agent under its own name
+(`atlas-myapp`), so they can be used side by side without swapping bundles.
+
+A useful pairing is Code Atlas for the **static** side next to a tool that sends **live** requests
+to the running app: use Code Atlas to find where the behaviour lives (search the route or
+function, read the source with `atlas_get_source`, follow callers and imports with
+`atlas_neighbors`, check `atlas_threats` for leads on that code), then replay the route in the
+live tool and compare what the code says with what the server actually does. Code Atlas never
+sends a request to your app and sees only the source snapshot; the live tool never sees the
+source. Rebuild the bundle after the code changes.
+
 ## 8. Triage (writing decisions back) - opt-in
 
 Over HTTP the write tool is not even registered. To enable it deliberately, remove the

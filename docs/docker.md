@@ -42,6 +42,25 @@ Open the app at <http://127.0.0.1:4173>. Change ports in `.env` (`ATLAS_APP_PORT
 `ATLAS_MCP_PORT`; the host and container ports are kept equal on purpose, because the
 servers check the `Host` header against the port they serve).
 
+## Several projects at once
+
+The default instance serves one bundle (`atlas/atlas.bundle.json`). To keep a second codebase
+available **at the same time**, give it a name. It gets its own bundle folder, port, container
+and MCP server; the image and API key are shared, and the default instance is not touched.
+
+```powershell
+.\scripts\atlas.ps1 build C:\path\to\app -Project myapp    # -> atlas\myapp\atlas.bundle.json (+ viewer.html)
+.\scripts\atlas.ps1 start -Project myapp                   # MCP server on its own port (8001, 8002, ... remembered in .env)
+.\scripts\atlas.ps1 mcp-config -Project myapp              # URL + a ready `claude mcp add ... atlas-myapp` command
+.\scripts\atlas.ps1 projects                               # every project: bundle, port, running or stopped
+.\scripts\atlas.ps1 stop -Project myapp                    # stop only that one
+```
+
+macOS / Linux / WSL: `./scripts/atlas.sh --project myapp build /path/to/app`, and so on. A named
+project runs only the MCP server (the web app is shared); the bundle is labelled with the
+project name, so `atlas_overview` tells the servers apart. Open its map from
+`atlas\myapp\viewer.html`.
+
 ## Hardening applied
 
 - Published ports bind the host's **127.0.0.1** only. Nothing is reachable from your
