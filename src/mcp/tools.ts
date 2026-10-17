@@ -193,6 +193,24 @@ export class AtlasTools {
     return { total, returned: rows.length, findings: rows, note: "Static leads unless graded OBSERVED/TESTED. Use atlas_threats(id) for the explanation and blast radius." };
   }
 
+  /** HTTP routes found in code (method, path template, handler), optionally filtered. A static reading: see routes.ts. */
+  routes(filter: { method?: string; path?: string; file?: string; limit?: number } = {}) {
+    const limit = Math.min(Math.max(Math.floor(Number(filter.limit) || 200), 1), 1000);
+    const rows: any[] = []; let total = 0;
+    for (const r of this.bundle.routes ?? []) {
+      if (filter.method && r.method !== String(filter.method).toUpperCase()) continue;
+      if (filter.path && !r.path.includes(filter.path) && !r.template.includes(filter.path)) continue;
+      if (filter.file && !r.evidence.path.includes(filter.file)) continue;
+      total++;
+      if (rows.length < limit) rows.push({
+        method: r.method, path: r.path, template: r.template, handler: r.handler ?? null, inline: r.inline ?? false,
+        file: r.evidence.path, line: r.evidence.line, node: r.nodeRef ? this.brief(r.nodeRef) : null,
+        findings: r.nodeRef ? (this.findingsByNode.get(r.nodeRef) ?? []).map((f: any) => ({ id: f.id, kind: f.kind, grade: f.grade, title: f.title })) : [], note: r.note ?? null,
+      });
+    }
+    return { total, returned: rows.length, routes: rows, note: "Routes are read from code (JS/TS). A mount prefix is not applied and a run-time path is not seen; a route is not evidence that an endpoint is reachable." };
+  }
+
   course(id: string) {
     const l = this.lessonByNode.get(id);
     if (!l) return { id, lesson: null, note: "no lesson attached to this node" };

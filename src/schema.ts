@@ -229,6 +229,20 @@ export const AsiSnapshotSchema = z.object({
  * 4. BUNDLE  (top-level — assembles everything)
  * ========================================================================== */
 
+/** An HTTP route registered in code (a STATIC reading: mount prefixes and run-time paths are not applied). */
+export const RouteSchema = z.object({
+  method: z.string(),                       // GET, POST, ... or ANY
+  path: z.string(),                         // as written in the code
+  template: z.string(),                     // params collapsed: /projects/{param}/open
+  nodeRef: z.string().optional(),           // the handler's node, or the function / file that registers an inline handler
+  handler: z.string().optional(),           // handler name when written as a name
+  inline: z.boolean().optional(),           // handler written inline at the registration
+  evidence: EvidenceSchema,                 // where the route is registered
+  framework: z.string(),
+  note: z.string().optional(),
+});
+export type Route = z.infer<typeof RouteSchema>;
+
 export const AtlasBundleSchema = z.object({
   schemaVersion: z.literal("1.0"),
   product: z.object({ name: z.string() }),          // NOT hardcoded; viewer reads it
@@ -238,6 +252,7 @@ export const AtlasBundleSchema = z.object({
   course: CourseSchema.optional(),                  // v1 course layer
   blurbs: z.array(NodeBlurbSchema).optional(),      // RESERVED
   findings: z.array(FindingSchema).optional(),      // Security layer (absent => all GRAY)
+  routes: z.array(RouteSchema).optional(),          // HTTP routes found in JS/TS code (absent on older bundles)
   asiSnapshot: AsiSnapshotSchema.optional(),        // pinned ASI classes referenced by findings
   // inlined source for the viewer (offline). `truncated`: only a prefix of the file
   // is inlined (the build caps size), so nodes past the cap have no inlined source.
