@@ -27,6 +27,8 @@ macOS / Linux / WSL / Git Bash: the same with `./scripts/atlas.sh`.
 | `key` | create a random MCP API key in `.env` if there is none |
 | `mcp-config` | print the URL, header and ready-made client commands (shows your key) |
 
+ChatGPT (through OpenAI's Secure MCP Tunnel) has its own script: `.\scripts\atlas-tunnel.ps1` (`install`, `setup`, `doctor`, `run`); see [mcp-setup.md](mcp-setup.md).
+
 Without the scripts: `docker compose up -d app`, `docker compose up -d mcp`,
 `docker compose down`, and `ATLAS_SRC=/path/to/project docker compose --profile tools run --rm build`.
 

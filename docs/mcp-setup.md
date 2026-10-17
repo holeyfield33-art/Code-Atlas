@@ -170,59 +170,73 @@ configured servers.
 
 ### ChatGPT (custom MCP server, through a Secure MCP Tunnel)
 
-ChatGPT runs in the cloud and cannot reach `127.0.0.1`, so its **Server URL** option is
-not usable for a local server (it would need a public HTTPS address; do not expose this
-server publicly). Its **Tunnel** option is the supported route: OpenAI's `tunnel-client`
-runs on your machine and relays requests to the local server. Source:
-<https://developers.openai.com/api/docs/guides/secure-mcp-tunnels>. **I did not run
-`tunnel-client` or add a server in ChatGPT**: the steps below come from that guide plus
-what was tested on the Code Atlas side (marked).
+ChatGPT runs in the cloud and cannot reach `127.0.0.1`, so the dialog's **Server URL**
+option is not usable for a local server (it needs a public HTTPS address; do not expose
+this server publicly). Its **Tunnel** option is the supported route: OpenAI's
+`tunnel-client` runs on your machine and relays requests to the local server. Sources:
+<https://developers.openai.com/api/docs/guides/secure-mcp-tunnels> and the client's own
+`tunnel-client help quickstart`.
 
-The ChatGPT form has no header field, and this server authenticates with a key. With a
-tunnel the key does not have to go into ChatGPT at all: it goes in the **local**
-`tunnel-client` configuration, in the URL it forwards to. That needs the server's opt-in
-URL-key mode:
+**What was tested here:** `tunnel-client` v0.0.16 was downloaded, its SHA-256 checked
+against the published list, and `setup` + `doctor` run against this server with
+placeholder OpenAI credentials. Every local check passed, including *MCP server reachable*
+(HTTP 405 on its probe, which is the authenticated answer) and *OAuth metadata: not
+advertised*. **Not tested:** anything that needs a real tunnel id and runtime key (the
+tunnel itself, ChatGPT discovering the tools, a tool call from ChatGPT), because those
+credentials come from your OpenAI account.
 
-1. In `.env` add `ATLAS_ALLOW_URL_KEY=1`, then `.\scripts\atlas.ps1 restart mcp`.
-   *(Tested: `http://127.0.0.1:8000/mcp?key=<key>` and `/mcp/<key>` authenticate; a wrong
-   key is 401 and counts toward the lockout; with the option off, both forms are 404.)*
-2. `.\scripts\atlas.ps1 tunnel-url` copies `http://127.0.0.1:8000/mcp?key=<key>` to your
-   clipboard (it is not printed).
-3. In OpenAI Platform settings create a **tunnel** and note its `tunnel_id`; you also need
-   a runtime API key for `tunnel-client` (the guide calls it `CONTROL_PLANE_API_KEY`) and
-   the permissions it lists (Tunnels Read + Manage to create, Read + Use to run). The tunnel
-   must be associated with your ChatGPT workspace. The guide does not state which plans
-   are eligible.
-4. Install `tunnel-client` from <https://github.com/openai/tunnel-client/releases/latest>,
-   then point it at the local server instead of a command. From the guide's pattern
-   (run `tunnel-client help quickstart` for the sample name that matches an HTTP server):
+The ChatGPT dialog has no header field, and this server authenticates with a key. With a
+tunnel the key never goes into ChatGPT: it sits in the **local** `tunnel-client` profile,
+in the URL it forwards to. That needs the server's opt-in URL-key mode (step 1). The
+client's `sample_mcp_remote_no_auth` profile ("remote HTTP MCP server without OAuth
+metadata") matches this server, so in the dialog the server needs **no OAuth**: pick the
+no-authentication choice if the Authentication list offers one.
 
-   ```bash
-   export CONTROL_PLANE_API_KEY="sk-..."
-   tunnel-client init --profile code-atlas --tunnel-id tunnel_xxxxxxxx \
-     --mcp-server-url "<paste the tunnel-url value>" --sample <http sample from quickstart>
-   tunnel-client doctor --profile code-atlas --explain
-   tunnel-client run --profile code-atlas        # leave running
+1. **URL-key mode.** In `.env` add `ATLAS_ALLOW_URL_KEY=1`, then
+   `.\scripts\atlas.ps1 restart mcp` (restart recreates the container so the change applies).
+   *(Tested: `/mcp?key=<key>` and `/mcp/<key>` authenticate; a wrong key is 401 and counts
+   toward the lockout; with the option off both are 404.)*
+2. **Two values from OpenAI Platform** (<https://platform.openai.com/settings/organization/tunnels>):
+   - a **tunnel id** (`tunnel_` plus 32 hex characters), created in *Tunnels management*;
+   - a **runtime API key** (*Runtime API keys*), for a principal with *Tunnels Read + Use*
+     (creating the tunnel needs *Read + Manage*). The tunnel must be associated with your
+     ChatGPT workspace. The guide does not state which plans are eligible.
+3. **Install and set up** (one time):
+
+   ```powershell
+   .\scripts\atlas-tunnel.ps1 install                        # download + checksum-verify tunnel-client
+   .\scripts\atlas-tunnel.ps1 setup -TunnelId tunnel_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   .\scripts\atlas-tunnel.ps1 doctor                         # asks for the runtime key (hidden)
    ```
 
-5. In ChatGPT: **Plugins > Add > Add custom MCP server**, name it, set **Connection** to
-   **Tunnel**, pick your tunnel. For **Authentication** the form defaults to *OAuth*. **This
-   server does not implement OAuth.** If the dropdown offers a no-authentication option, use
-   it: the hop from ChatGPT to your tunnel is private to your workspace, and the key only
-   travels between `tunnel-client` and your machine. If OAuth is the only choice, ChatGPT
-   cannot connect to this server yet.
-6. Tick the risk acknowledgement, save, and call `atlas_overview` first.
+   `setup` checks that the Atlas MCP server is up and accepts the URL key, writes the
+   `code-atlas` profile (the runtime key is only *referenced* as `env:CONTROL_PLANE_API_KEY`,
+   never written), and remembers the tunnel id in `.env`.
+4. **Run it** and leave the window open:
 
-Not verified: whether `tunnel-client` forwards a `Host` header this server accepts (the
-default allowlist is `localhost`, `127.0.0.1`, `::1`; add others with `ATLAS_ALLOWED_HOSTS`),
-and which authentication options the form offers beyond OAuth. If `tunnel-client doctor`
-or ChatGPT reports 403 or 401, `.\scripts\atlas.ps1 logs mcp` shows what the server saw.
+   ```powershell
+   .\scripts\atlas-tunnel.ps1 run                            # local admin UI: http://127.0.0.1:18080/ui
+   ```
+
+5. **In ChatGPT**, only while the tunnel is running: **Plugins > Add > Add custom MCP
+   server**, name it, **Connection: Tunnel**, pick your tunnel, **Authentication:** the
+   dialog defaults to *OAuth*; this server has none, so choose the no-authentication option.
+   If OAuth is the only option the list offers, ChatGPT cannot connect to this server yet.
+   Tick the risk acknowledgement, save, then ask it to call `atlas_overview`. Keep
+   `tunnel-client` running for discovery and every later tool call.
+
+The profile file contains your Atlas key (it is in the forwarded URL). It lives in the
+current user's profile; do not share it or put it under version control. Rotate with
+`atlas.ps1 key` after removing the old line from `.env`, then `restart mcp` and
+`atlas-tunnel.ps1 setup` again.
+
+If `doctor` or ChatGPT reports 401 or 403, `.\scripts\atlas.ps1 logs mcp` shows what the
+server saw; a `Host` other than `localhost` or `127.0.0.1` is refused unless listed in
+`ATLAS_ALLOWED_HOSTS`. Whether the tunnel forwards such a Host is not documented.
 
 **Risk of the URL key.** A URL is logged and displayed more freely than a header (shell
-history, tunnel-client logs, config files). Use this mode only for a client on the same
-machine, do not paste the URL into chats or tickets, and rotate the key
-(`atlas.ps1 key` after deleting the old line in `.env`, then `restart mcp`) if it leaks. This
-server never logs request URLs.
+history, client logs, config files). Use this mode only for a client on the same machine
+and do not paste the URL into chats or tickets. This server never logs request URLs.
 
 ## 5. Verify the connection
 
@@ -322,9 +336,10 @@ suppress blast radius. A disposition never upgrades a finding's grade. Prefer st
 
 ## 9. Not covered / unverified
 
-- **ChatGPT.** The tunnel route above is documented but was **not run**, and whether the
-  form accepts a no-authentication option (versus OAuth only) is unknown. A hosted client
-  cannot reach `127.0.0.1`; do not expose the port publicly to find out.
+- **ChatGPT.** The tunnel route is set up and its local checks pass, but a real tunnel, ChatGPT
+  discovering the tools, and a tool call from ChatGPT were **not** run (they need your OpenAI
+  tunnel id and runtime key), and whether the dialog's Authentication list offers a
+  no-authentication choice was not confirmed.
 - **Claude Desktop remote (HTTP) servers.** Local stdio is documented above; adding a
   remote server there was not verified.
 - **Other clients** (Windsurf, Gemini CLI, Continue, Zed, ...). Any client that can
