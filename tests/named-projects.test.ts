@@ -43,4 +43,30 @@ assert.ok(/--label "\$ATLAS_LABEL"/.test(read("docker/entrypoint.sh")), "the ent
 assert.ok(/\[string\]\$Project/.test(read("scripts/atlas.ps1")) && /-p", "code-atlas-\$Project"/.test(read("scripts/atlas.ps1")), "atlas.ps1 takes -Project and uses its own compose project");
 assert.ok(/--project/.test(read("scripts/atlas.sh")) && /code-atlas-\$PROJECT/.test(read("scripts/atlas.sh")), "atlas.sh takes --project and uses its own compose project");
 
+// ---- no leakage between commands (Windows PowerShell). The script hands ATLAS_DATA_DIR / ATLAS_MCP_PORT /
+// ATLAS_LABEL to docker compose through the process environment, which in an interactive session outlives
+// the script: a `-Project x` run used to leak into the next plain command, which then built into atlas\x and
+// restarted the default server on x's bundle and port. Reproduce in ONE PowerShell process, on a throwaway
+// copy of the script so no real .env is touched. (`mcp-config` needs no Docker.)
+if (process.platform === "win32") {
+  const iso = mkdtempSync(join(tmpdir(), "atlas-leak-"));
+  mkdirSync(join(iso, "scripts"));
+  writeFileSync(join(iso, "scripts", "atlas.ps1"), readFileSync(join(repo, "scripts/atlas.ps1")));
+  writeFileSync(join(iso, ".env.example"), "ATLAS_MCP_API_KEY=replace-with-64-random-hex-characters\n");
+  const ps = [
+    "$ErrorActionPreference='Stop'",
+    "& .\\scripts\\atlas.ps1 mcp-config -Project leaktest | Out-Null",
+    "$leak = @('ATLAS_DATA_DIR','ATLAS_MCP_PORT','ATLAS_LABEL','ATLAS_SRC') | Where-Object { [Environment]::GetEnvironmentVariable($_,'Process') }",
+    "if ($leak) { Write-Output ('LEAKED ' + ($leak -join ',')); exit 3 }",
+    // a value the CALLER set must survive untouched
+    "$env:ATLAS_LABEL = 'callers-own-value'",
+    "& .\\scripts\\atlas.ps1 mcp-config | Out-Null",
+    "if ($env:ATLAS_LABEL -ne 'callers-own-value') { Write-Output 'CALLER VALUE LOST'; exit 4 }",
+    "Write-Output 'OK'",
+  ].join("; ");
+  const r = spawnSync("powershell", ["-NoProfile", "-Command", ps], { cwd: iso, encoding: "utf8", timeout: 120000 });
+  assert.equal(r.status, 0, "no env leak between commands: " + r.stdout + r.stderr);
+  assert.match(readFileSync(join(iso, ".env"), "utf8"), /^ATLAS_MCP_PORT_LEAKTEST=8001\r?$/m, "the project's port is remembered in the isolated .env");
+} else console.log("  (PowerShell leak check skipped: not Windows)");
+
 console.log("named-projects.test: --label names bundles; every compose mount follows ATLAS_DATA_DIR; wrappers + entrypoint wired for per-project servers");

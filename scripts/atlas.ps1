@@ -27,6 +27,15 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 $placeholder = "replace-with-64-random-hex-characters"
 
+# This script passes ATLAS_DATA_DIR / ATLAS_MCP_PORT / ATLAS_LABEL / ATLAS_SRC to docker compose through the
+# process environment. In an interactive PowerShell session that environment OUTLIVES the script, so a
+# `-Project x` run used to leak into the next command (a plain `build` then wrote into atlas\x and a plain
+# `restart` mounted it). So: start from a clean slate every run, and put the caller's values back on exit.
+$internalEnv = @("ATLAS_DATA_DIR", "ATLAS_MCP_PORT", "ATLAS_LABEL", "ATLAS_SRC")
+$savedEnv = @{}
+foreach ($n in $internalEnv) { $savedEnv[$n] = [Environment]::GetEnvironmentVariable($n, "Process"); [Environment]::SetEnvironmentVariable($n, $null, "Process") }
+try {
+
 function Need-Docker {
   if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw "Docker is not installed or not on PATH." }
   docker info *> $null
@@ -50,7 +59,7 @@ function Ensure-Key {
   if (-not (Test-Path .env)) { Copy-Item .env.example .env }
   $lines = @(Get-Content .env)
   $found = $false
-  $lines = $lines | ForEach-Object { if ($_ -match "^\s*ATLAS_MCP_API_KEY\s*=") { $found = $true; "ATLAS_MCP_API_KEY=$k" } else { $_ } }
+  $lines = @($lines | ForEach-Object { if ($_ -match "^\s*ATLAS_MCP_API_KEY\s*=") { $found = $true; "ATLAS_MCP_API_KEY=$k" } else { $_ } })   # @() keeps a 1-line file an array
   if (-not $found) { $lines += "ATLAS_MCP_API_KEY=$k" }
   Set-Content -Path .env -Value $lines -Encoding ascii
   Write-Host "Created a new MCP API key in .env (git-ignored)."
@@ -64,7 +73,7 @@ $dataRel = "atlas"
 function Set-EnvValue([string]$name, [string]$value) {
   if (Test-Path .env) { $lines = @(Get-Content .env) } else { $lines = @(Get-Content .env.example) }
   $found = $false
-  $lines = $lines | ForEach-Object { if ($_ -match "^\s*$name\s*=") { $found = $true; "$name=$value" } else { $_ } }
+  $lines = @($lines | ForEach-Object { if ($_ -match "^\s*$name\s*=") { $found = $true; "$name=$value" } else { $_ } })   # @() keeps a 1-line file an array
   if (-not $found) { $lines += "$name=$value" }
   Set-Content -Path .env -Value $lines -Encoding ascii
 }
@@ -83,7 +92,7 @@ if ($Project) {
   $script:composeProject = @("-p", "code-atlas-$Project")
   $dataRel = "atlas\$Project"
   $env:ATLAS_DATA_DIR = "./atlas/$Project"
-  $env:ATLAS_MCP_PORT = Project-Port $Project
+  if ($Command.ToLower() -ne "help") { $env:ATLAS_MCP_PORT = Project-Port $Project }
 }
 
 # Run `docker compose ...`. Windows PowerShell 5.1 turns ANY stderr output from a native
@@ -221,4 +230,7 @@ MCP server for another codebase (own bundle folder atlas\<name>, own port, same 
   .\scripts\atlas.ps1 start -Project myapp
 "@
   }
+}
+} finally {
+  foreach ($n in $internalEnv) { [Environment]::SetEnvironmentVariable($n, $savedEnv[$n], "Process") }
 }
