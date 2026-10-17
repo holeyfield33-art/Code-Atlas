@@ -252,6 +252,7 @@ export const AtlasBundleSchema = z.object({
     skipped: z.object({
       unsupported: z.number(), tooLarge: z.number(), overCap: z.number(),
       symlink: z.number(), ignoredDir: z.number(), ignoredDirFiles: z.number(), unreadable: z.number(),
+      excluded: z.number().optional(),   // left out by --include / --skip (a shard or a filtered build)
     }),
   }).optional(),
   diagnostics: z.array(z.object({ stage: z.string(), message: z.string() })).default([]),
