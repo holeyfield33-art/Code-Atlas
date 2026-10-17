@@ -44,6 +44,15 @@ const r2 = run(`
 assert.strictEqual(r2.ok, true, "a multi-call join runs");
 assert.ok(Array.isArray(r2.result), "join returns an array the agent shaped itself");
 
+// 2b) findings can be listed without knowing an id or path first (threats() needs one)
+const direct = tools.findings({ limit: 5 }) as any;
+const rf = run(`return atlas.findings({ limit: 5 });`);
+assert.strictEqual(rf.ok, true, "findings() runs in the sandbox");
+assert.deepStrictEqual(rf.result, direct, "sandbox findings() matches the direct call");
+assert.strictEqual(direct.total, (bundle.findings ?? []).length, "unfiltered total is every finding");
+assert.ok(direct.returned <= 5, "limit bounds the rows");
+assert.strictEqual((tools.findings({ kind: "no-such-kind" }) as any).total, 0, "a filter that matches nothing returns nothing");
+
 // 3) reproducible receipt: same code+bundle => same hash; different code => different hash
 const a = run(`return 1 + 1;`), b = run(`return 1 + 1;`), c = run(`return 2 + 2;`);
 assert.strictEqual(a.receipt.hash, b.receipt.hash, "same code+bundle => same receipt");

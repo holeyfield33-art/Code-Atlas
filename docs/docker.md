@@ -89,6 +89,13 @@ boundaries into groups of up to N files, and each group becomes its own named pr
   shards is not drawn. Search the other shard's server to follow it.
 - Each running shard server uses roughly 0.3-0.5 GB: run the ones you are working on.
 
+### Just files to upload (no servers, no ports)
+
+`code-atlas export <bundle folders...> -o <dir>` turns built bundles into a few plain Markdown files:
+`leads-NN.md` (security leads with the flagged code) and `map-NN.md` (every file, its functions, imports),
+each under 900 KB, plus a `00-read-me.md`. Upload them to any chat or agent; use the running app with
+SurfaceTrace or Burp for live requests.
+
 ## Hardening applied
 
 - Published ports bind the host's **127.0.0.1** only. Nothing is reachable from your

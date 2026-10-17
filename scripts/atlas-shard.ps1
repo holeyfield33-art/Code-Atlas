@@ -24,7 +24,7 @@ param(
   [string]$Name = "shard",
   [int]$MaxFiles = 3000,
   [string]$Skip = "spec,test,tests,__tests__,__mocks__,fixtures",
-  [string]$Only,
+  [int[]]$Only,
   [string]$Distro = "Ubuntu"
 )
 $ErrorActionPreference = "Stop"
@@ -77,7 +77,7 @@ $json | Set-Content -Path (Join-Path $root "atlas\$Name-plan.json") -Encoding ut
 if ($Command.ToLower() -ne "build") { Write-Host "`n(plan only: run with 'build' to make the bundles)"; return }
 
 # NB: PowerShell variable names are case-insensitive, so a local named $only would overwrite the typed [string]$Only parameter.
-$wanted = @(); if ($Only) { $wanted = @($Only -split ',' | ForEach-Object { [int]$_.Trim() }) }
+$wanted = @(); if ($Only) { $wanted = @($Only) }
 $rows = @()
 foreach ($s in $plan.shards) {
   if ($wanted.Count -and ($wanted -notcontains [int]$s.index)) { continue }

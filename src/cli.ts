@@ -7,8 +7,10 @@
  * JS/TS, tree-sitter for Python/Ruby. Pipeline lives in build.ts; this adds IO.
  */
 import { Command } from "commander";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { AtlasBundleSchema } from "./schema.js";
+import { exportBundles } from "./exportFiles.js";
 import { buildAtlas } from "./build.js";
 import { renderViewer } from "./viewer.js";
 import { serveAtlas } from "./server.js";
@@ -92,6 +94,24 @@ program
     const brief = (inc: string[]) => inc.length === 0 ? "(whole tree)" : inc.length <= 4 ? inc.join(", ") : `${inc.slice(0, 4).join(", ")}  (+${inc.length - 4} more folders)`;
     for (const s of shards) console.log(`  ${String(s.index).padStart(2)}  ${String(s.files).padStart(5)} files${s.oversize ? "  (OVERSIZE: one folder is bigger than the cap)" : ""}  [${s.hint}]  ${brief(s.include)}`);
     console.log("Build one:  code-atlas build <path> --include <its folders> [--skip ...] --label <name>");
+  });
+
+program
+  .command("export")
+  .description("Write built bundles as a few plain Markdown files (security leads + code map) that can be uploaded anywhere.")
+  .argument("<bundles...>", "atlas.bundle.json files (or folders holding one)")
+  .option("-o, --out <dir>", "output directory", "atlas-export")
+  .option("--max-kb <n>", "size cap per file in KB (default 900)", (v) => parseInt(v, 10), 900)
+  .action((inputs: string[], opts: { out: string; maxKb: number }) => {
+    const bundles = inputs.map((p) => {
+      const f = existsSync(join(p, "atlas.bundle.json")) ? join(p, "atlas.bundle.json") : p;
+      return AtlasBundleSchema.parse(JSON.parse(readFileSync(f, "utf8")));
+    });
+    mkdirSync(opts.out, { recursive: true });
+    const files = exportBundles(bundles, opts.maxKb * 1024);
+    for (const f of files) writeFileSync(join(opts.out, f.name), f.text);
+    console.log(`Wrote ${files.length} files to ${opts.out}:`);
+    for (const f of files) console.log(`  ${f.name}  ${Math.round(Buffer.byteLength(f.text) / 1024)} KB`);
   });
 
 program

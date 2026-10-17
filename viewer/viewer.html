@@ -556,6 +556,9 @@ function nodeColor(node){
   return KIND_COLOR(node.kind);
 }
 function linkColor(link){
+  // Security view: nodes carry the security colours, so lines stay neutral. Otherwise the green of a
+  // "calls" line reads as a security result (it is the same green as a hardened control).
+  if(state.mode==="security") return css("--k-contains");
   const base = css(EDGE_COLOR[link.kind]||"--edge");
   if(state.mode==="learn" && state.selected){
     const s = srcId(link.source), t = srcId(link.target);

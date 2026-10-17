@@ -21,12 +21,33 @@ own packs there. A custom pack can be loaded with `build --rules <file>`.
 A function matching both `r-input-to-sink` and `r-unguarded-sink` shows the first in the
 viewer; both appear in the MCP `atlas_threats` output.
 
+## Ruby rules (calibrated on GitLab)
+
+| Rule | Reports a method that... | Does not report |
+|---|---|---|
+| `rb-code-exec` | calls `eval`, or `instance_eval` / `class_eval` / `module_eval` together with string interpolation (`#{}`) or request params | block-form `class_eval do ... end` |
+| `rb-dynamic-dispatch` | calls `send` / `public_send` with a variable, an interpolated string or request params as the method name | `send(:name)` with a literal symbol |
+| `rb-os-command` | calls `system` / `exec` / `Open3` with a command that is not a plain string literal | `system("git", "push")`, `system "ls"` |
+| `rb-unsafe-deser` | calls `Marshal.load` / `YAML.load` without `safe_load` | |
+| `rb-raw-secret` | has a secret-like name **and** writes a log line, prints, writes a file or sends an HTTP request, with no `redact` / `mask` / `sanitize` | predicates (`token_valid?`), `*_params`, `*_path`, `*_url`, `*_ids`, `verify*`, `hash*`, `encrypt*`; a secret-named method that does nothing observable |
+| `rb-input-validation` (control) | calls `validate` / `validates` / `permit` / `sanitize` / `shellescape` | |
+
+On the 35,000-file GitLab tree the first version of these rules reported about 2,270 Ruby and JS weaknesses, almost all
+by name alone (`send(:literal)`, any method with "token" in its name). With the shape requirements above it reports about 200.
+The 660 `rb-input-validation` controls are unchanged. A `send` call carrying GitLab's reviewed
+`rubocop:disable GitlabSecurity/PublicSend` comment is not reported.
+
+Guards are recognised by name prefix (`verify*`, `check*`, `validate*`, `assert*`, `guard*`); `parse` stays exact because `parseInt` validates nothing.
+
+A JS/TS method *definition* named like a sink (`run(inst) { ... }`) is not a call to that sink.
+
 ## How matching works (so you can predict it)
 
 - A **bare** sink name (`exec`, `run`, `query`, `writeFile`) matches only a **free** call, so
   `re.exec(...)` is not a process exec.
 - A **dotted** sink name (`fs.writeFileSync`, `child_process.exec`, `db.prepare`) matches the
   method form, including after `this.`, because the receiver is part of the token.
+- `textMatches` is a linear-time (RE2) pattern test on the function body, for shapes a substring cannot express (a command that is not a string literal). Like `textAny` it reads text, so a comment can satisfy it.
 - `textAny` is a plain substring test on the function body, so a comment containing `req.body`
   satisfies it. It is one signal among several, never proof.
 - Validators are matched by call name in any form. A function that calls anything named
