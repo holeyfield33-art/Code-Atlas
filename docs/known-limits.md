@@ -16,6 +16,9 @@ are the limits to keep in mind when reading a map or a finding.
 - **Source in the bundle is capped at 40,000 characters per file.** The graph is built
   from the full file, but code past the cap is not embedded: `atlas_get_source` and the
   viewer say "unavailable" for it.
+- **Large repos are sharded.** One bundle is loaded whole into memory, so a repo of tens of thousands
+  of files is split into several bundles (see [docker.md](docker.md#a-repo-too-big-for-one-bundle-shards));
+  a relationship that crosses shards is not drawn.
 - **Snapshot:** nothing updates by itself. Rebuild after code changes; rebuilding drops
   triage decisions.
 

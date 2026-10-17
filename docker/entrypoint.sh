@@ -36,12 +36,18 @@ case "$mode" in
     need_bundle
     exec node dist/mcp/server.js --bundle "$BUNDLE" "$@"
     ;;
+  plan)
+    # Split a mounted source tree into shards (prints the plan; builds nothing).
+    exec node dist/cli.js plan /src "$@"
+    ;;
   build)
     # Source is mounted read-only at /src; output goes to /data.
     # ATLAS_LABEL names the project in the bundle (otherwise it would be called "src", the mount name).
-    if [ -n "${ATLAS_LABEL:-}" ]; then
-      exec node dist/cli.js build /src --out /data --label "$ATLAS_LABEL" "$@"
-    fi
+    # ATLAS_INCLUDE / ATLAS_SKIP (comma-separated) restrict the scan to a shard of a large repo.
+    set -- "$@"
+    [ -n "${ATLAS_LABEL:-}" ] && set -- --label "$ATLAS_LABEL" "$@"
+    [ -n "${ATLAS_INCLUDE:-}" ] && set -- --include "$ATLAS_INCLUDE" "$@"
+    [ -n "${ATLAS_SKIP:-}" ] && set -- --skip "$ATLAS_SKIP" "$@"
     exec node dist/cli.js build /src --out /data "$@"
     ;;
   *)

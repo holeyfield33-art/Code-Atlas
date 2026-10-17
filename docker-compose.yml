@@ -71,6 +71,8 @@ services:
     command: ["build"]
     environment:
       ATLAS_LABEL: "${ATLAS_LABEL:-}"
+      ATLAS_INCLUDE: "${ATLAS_INCLUDE:-}"
+      ATLAS_SKIP: "${ATLAS_SKIP:-}"
     volumes:
       - "${ATLAS_SRC:-./}:/src:ro"
       - "${ATLAS_DATA_DIR:-./atlas}:/data"

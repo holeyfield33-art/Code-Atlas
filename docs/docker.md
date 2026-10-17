@@ -63,6 +63,32 @@ project runs only the MCP server (the web app is shared); the bundle is labelled
 project name, so `atlas_overview` tells the servers apart. Open its map from
 `atlas\myapp\viewer.html`.
 
+## A repo too big for one bundle (shards)
+
+One bundle is loaded whole into memory by its MCP server, and the viewer cannot draw tens of
+thousands of files, so a monorepo needs several. `code-atlas plan` splits it along folder
+boundaries into groups of up to N files, and each group becomes its own named project:
+
+```powershell
+.\scripts\atlas-shard.ps1 plan  -Source /home/me/gdk/gitlab            # show the split (a Linux path = read through WSL)
+.\scripts\atlas-shard.ps1 build -Source /home/me/gdk/gitlab -Name gdk   # atlas\gdk-01, gdk-02, ...
+.\scripts\atlas.ps1 start -Project gdk-02                               # run one shard's MCP server
+```
+
+- The plan counts exactly what the scanner would read (same ignore list, size cap, supported
+  extensions) and covers every analyzable file **exactly once**. A folder that fits stays whole;
+  one over the cap is opened up and its sub-folders and own files are packed with their neighbours
+  in path order. One folder bigger than the cap alone becomes an oversize shard rather than being cut.
+- Test folders are skipped by default (`-Skip "spec,test,tests,__tests__,__mocks__,fixtures"`);
+  `-Skip ""` includes them.
+- Under the hood: `build --include <folders>` scans only those folders but keeps root-relative
+  paths (so source links and evidence stay valid), and `--skip` leaves folders out. Everything left
+  out is counted in the bundle's coverage record (`excluded`), so a shard never claims to be the
+  whole repo.
+- **Limit:** calls and imports resolve only inside one bundle, so a relationship that crosses
+  shards is not drawn. Search the other shard's server to follow it.
+- Each running shard server uses roughly 0.3-0.5 GB: run the ones you are working on.
+
 ## Hardening applied
 
 - Published ports bind the host's **127.0.0.1** only. Nothing is reachable from your
