@@ -5,7 +5,7 @@
 import { readdirSync, lstatSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
-const IGNORE_DIRS = new Set([
+export const IGNORE_DIRS = new Set([
   "node_modules", ".git", "dist", "build", ".next", "coverage",
   ".course", "atlas", ".turbo", "out", "vendor", "__pycache__", ".venv", "venv",
 ]);

@@ -21,6 +21,8 @@ node dist/cli.js build .            # scan this repo
 open atlas/viewer.html              # double-click — the 3D map + course
 ```
 
+Or skip the command line: `node dist/cli.js serve` starts a local app on `http://127.0.0.1:4173` (loopback only) with an **Open folder** button that analyzes a project on this computer and loads it into the viewer. See [docs/ingestion.md](docs/ingestion.md) for limits and what the folder picker sends where.
+
 `build` scans the repo (JS/TS, Python, Ruby, and Vue — see **Supported languages**), builds a call/import graph, generates grounded exercises, and writes:
 
 - `atlas/atlas.bundle.json` — the graph + course, validated against the schema.
