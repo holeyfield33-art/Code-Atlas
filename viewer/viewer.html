@@ -38,6 +38,40 @@
       color-scheme:light;
     }
   }
+  /* Electric: an optional vibrant theme. It changes node/edge/chrome colours ONLY: the security grade colours
+     (--grade-*) are deliberately not redefined here, so evidence meaning is identical in every theme. */
+  :root[data-theme="electric"]{
+    --bg:#05070f; --panel:#0b1020; --panel-2:#080c18; --edge:#1c2748;
+    --fg:#eef3ff; --fg-dim:#a9b8e0; --fg-faint:#6b7bab;
+    --accent:#00f0ff; --file:#ffb020; --func:#3d9bff;
+    --k-contains:#3b4a7d; --k-imports:#a066ff; --k-calls:#00e5c0;
+    color-scheme:dark;
+  }
+  /* Exploration (UI state only: never a finding, never evidence) */
+  .xbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:12px 0 0}
+  .xbar .xstat{flex:1 1 100%;font-size:12px;color:var(--fg-faint);line-height:1.4}
+  .xbar .btn{padding:4px 9px;font-size:12px}
+  .xbar .btn[aria-pressed="true"]{color:var(--accent);border-color:var(--accent)}
+  .xpanel{position:absolute;top:calc(var(--rail-h) + 4px);left:max(16px,env(safe-area-inset-left,0px));z-index:7;
+    width:min(360px,92vw);max-height:min(70vh,560px);overflow:auto;background:var(--panel);border:1px solid var(--edge);
+    border-radius:var(--radius);padding:12px 14px;box-shadow:0 12px 40px rgba(0,0,0,.45)}
+  .xpanel h3{margin:14px 0 6px;font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--fg-faint);font-family:var(--mono);font-weight:500}
+  .xpanel .xnote{font-size:11.5px;line-height:1.45;color:var(--fg-faint);margin:8px 0 0}
+  .xpanel .xrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .xitem{display:flex;gap:8px;align-items:baseline;width:100%;text-align:left;background:transparent;border:0;border-radius:6px;
+    padding:5px 6px;color:var(--fg);cursor:pointer;font-family:var(--sans);font-size:12.5px}
+  .xitem:hover{background:var(--panel-2)}
+  .xitem .xp{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .xitem .xs{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--fg-faint);flex:0 0 auto}
+  .xempty{font-size:12px;color:var(--fg-faint);padding:4px 6px}
+  /* Source: normal text selection, plus explicit copy actions */
+  .insp-body,.src-inner{user-select:text;-webkit-user-select:text}
+  .src-code{cursor:text}
+  .src-actions{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 6px}
+  .src-actions .btn{padding:3px 8px;font-size:11.5px}
+  .src-actions .btn[disabled]{opacity:.45;cursor:not-allowed}
+  .src-meta{font-family:var(--mono);font-size:10.5px;color:var(--fg-faint);margin:0 0 6px}
+  .src-meta.warn{color:var(--grade-yellow)}
   *{box-sizing:border-box}
   html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);overflow:hidden}
@@ -210,8 +244,8 @@
       <button class="btn" id="folderBtn" title="Analyze a project folder on this computer">Open folder</button>
       <button class="btn" id="loadBtn" title="Load an existing Atlas graph or bundle (.json)">Load bundle</button>
       <button class="btn" id="downloadBtn" title="Save the current project as an Atlas bundle">Save bundle</button>
-      <button class="btn" id="fitBtn" title="Reset the view">⤢ Fit view</button>
-      <button class="btn" id="themeBtn" title="Toggle light / dark">◐ Theme</button>
+      <button class="btn" id="fitBtn" title="Fit the view to the connected graph">⤢ Fit view</button>
+      <button class="btn" id="themeBtn" title="Cycle theme: dark, electric, light">◐ Theme</button>
       <input id="file" type="file" accept="application/json,.json" hidden>
       <input id="folder" type="file" webkitdirectory multiple hidden>
     </div>
@@ -228,8 +262,11 @@
         <button class="chip" data-kind="calls" aria-pressed="true"><i style="background:var(--k-calls)"></i>calls</button>
       </div>
       <button class="chip" id="detailBtn" title="Collapse functions into files for a fast, bounded view of a large repo">▣ <span id="detailLbl">Files</span></button>
+      <button class="chip" id="exploreBtn" title="What you have opened in this project. Saved in this browser.">◔ <span id="exploreLbl">Explored 0</span></button>
     </div>
   </div>
+
+  <div class="xpanel" id="xpanel" hidden></div>
 
   <aside class="inspector" id="inspector" aria-live="polite">
     <div class="insp-head">
@@ -474,6 +511,168 @@ function doneKey(){ return "atlas-done:"+(state.graph&&state.graph.revision||"g"
 function loadDone(){ try{ const r=localStorage.getItem(doneKey()); state.completed=new Set(r?JSON.parse(r):[]); }catch{ state.completed=new Set(); } }
 function saveDone(){ try{ localStorage.setItem(doneKey(),JSON.stringify([...state.completed])); }catch{} }
 
+/* ---- Exploration: what the person has opened, kept in this browser -------------
+   This is UI state. It is never written into findings, never changes a grade, and a
+   visit or bookmark proves nothing about the code.
+     visited  = the component was opened     reviewed = the person marked it
+   (Tested / verified belong to evidence and are not set here.) Records are keyed by
+   path + kind + name, so they survive a rebuild; a record also keeps the content hash
+   it was opened at, and a component whose content has since changed counts as unexplored again. */
+function exploreKey(n){ return ((n.evidence&&n.evidence.path)||"") + "::" + n.kind + "::" + n.label; }
+function exploreStatus(rec, n){
+  if(!rec || !rec.t) return "unvisited";
+  const h = n.evidence && n.evidence.contentHash;
+  if(rec.h && h && rec.h!==h) return "changed";
+  return rec.r ? "reviewed" : "visited";
+}
+/* nearest component (breadth-first over the given neighbours) that is still unexplored */
+function nextUnexplored(startId, nbrOf, isUnexplored, limit){
+  const seen = new Set([startId]); let level = [startId];
+  while(level.length && seen.size < (limit||5000)){
+    const next = [];
+    for(const id of level) for(const t of nbrOf(id)) if(!seen.has(t)){ seen.add(t); if(isUnexplored(t)) return t; next.push(t); }
+    level = next;
+  }
+  return null;
+}
+function mixHex(a, b, t){   // a moved toward b by t; #rrggbb only, anything else comes back unchanged
+  const parse = h => /^#[0-9a-f]{6}$/i.test(h) ? [1,3,5].map(i=>parseInt(h.slice(i,i+2),16)) : null;
+  const x = parse(a), y = parse(b); if(!x || !y) return a;
+  return "#" + x.map((v,i)=>Math.round(v+(y[i]-v)*t).toString(16).padStart(2,"0")).join("");
+}
+
+const EXPLORE_RECENT_MAX = 40;
+const explore = { items:{}, recent:[], fog:true };
+function exploreStoreKey(){ return "atlas-explore:v1:" + (state.exploreProject || "g"); }
+function loadExplore(){
+  explore.items = {}; explore.recent = []; explore.fog = true;
+  try{
+    const r = JSON.parse(localStorage.getItem(exploreStoreKey()) || "null");
+    if(r && typeof r==="object"){
+      if(r.items && typeof r.items==="object") explore.items = r.items;
+      if(Array.isArray(r.recent)) explore.recent = r.recent.filter(k=>typeof k==="string").slice(0,EXPLORE_RECENT_MAX);
+      if(r.fog===false) explore.fog = false;
+    }
+  }catch{}
+}
+let exploreSaveTimer = 0;
+function saveExplore(){
+  clearTimeout(exploreSaveTimer);
+  exploreSaveTimer = setTimeout(()=>{
+    try{ localStorage.setItem(exploreStoreKey(), JSON.stringify({ items:explore.items, recent:explore.recent, fog:explore.fog })); }catch{}
+  }, 250);
+}
+function exploreStat(id){ const n = state.byId.get(id); return n ? exploreStatus(explore.items[exploreKey(n)], n) : "unvisited"; }
+const isUnexplored = id => { const s = exploreStat(id); return s==="unvisited" || s==="changed"; };
+function markVisited(n){
+  const k = exploreKey(n);
+  const r = explore.items[k] || (explore.items[k] = {});
+  const h = (n.evidence && n.evidence.contentHash) || "";
+  if(r.h && h && r.h!==h) r.r = 0;           // the code changed since it was reviewed: that review no longer applies
+  r.t = Date.now(); r.h = h;
+  explore.recent = [k, ...explore.recent.filter(x=>x!==k)].slice(0, EXPLORE_RECENT_MAX);
+  saveExplore();
+}
+function exploreFlag(n, flag){   // "r" reviewed | "b" bookmarked
+  const k = exploreKey(n);
+  const r = explore.items[k] || (explore.items[k] = {});
+  r[flag] = r[flag] ? 0 : Date.now();
+  saveExplore();
+}
+function indexExploreKeys(){
+  state.byExploreKey = new Map();
+  for(const n of state.graph.nodes){ const k = exploreKey(n); if(!state.byExploreKey.has(k)) state.byExploreKey.set(k, n.id); }
+}
+/* nodes that must stay drawn even when the render cap withholds low-degree nodes */
+function pinnedIds(){
+  const s = new Set(); if(state.selected) s.add(state.selected);
+  const add = k => { const id = state.byExploreKey && state.byExploreKey.get(k); if(id) s.add(id); };
+  explore.recent.slice(0,30).forEach(add);
+  for(const k in explore.items) if(explore.items[k].b) add(k);
+  return s;
+}
+function fogged(id, base){
+  if(!explore.fog) return base;
+  const s = exploreStat(id);
+  return (s==="visited" || s==="reviewed") ? mixHex(base, css("--bg"), s==="reviewed" ? 0.7 : 0.5) : base;
+}
+function exploredCount(){
+  let n = 0;
+  for(const k in explore.items){ const id = state.byExploreKey && state.byExploreKey.get(k); if(id && !isUnexplored(id)) n++; }
+  return n;
+}
+function updateExploreChip(){
+  const lbl = document.getElementById("exploreLbl"); if(!lbl || !state.graph) return;
+  lbl.textContent = `Explored ${exploredCount().toLocaleString()} / ${state.graph.nodes.length.toLocaleString()}`;
+}
+function statLine(n){
+  const rec = explore.items[exploreKey(n)], s = exploreStatus(rec, n);
+  const when = rec && rec.t ? new Date(rec.t).toLocaleString() : "";
+  const text = s==="reviewed" ? `Marked reviewed by you (first opened ${when}).`
+    : s==="visited" ? `Opened ${when}. Not marked reviewed.`
+    : s==="changed" ? `Changed since you last opened it (${when}).`
+    : "Not opened before.";
+  return text + " Opening or bookmarking something does not verify it.";
+}
+function copyText(text, btn){
+  const done = ok => { if(!btn) return; const old = btn.dataset.l || btn.textContent; btn.dataset.l = old; btn.textContent = ok ? "Copied ✓" : "Copy failed"; setTimeout(()=>{ btn.textContent = old; }, 1400); };
+  const fallback = () => {
+    try{
+      const ta = document.createElement("textarea"); ta.value = text; ta.setAttribute("readonly","");
+      ta.style.cssText = "position:fixed;left:-9999px;top:0"; document.body.appendChild(ta); ta.select();
+      const ok = document.execCommand("copy"); ta.remove(); done(ok);
+    }catch{ done(false); }
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(()=>done(true), fallback);
+  else fallback();
+}
+function renderExplorePanel(){
+  const el = document.getElementById("xpanel"); if(!el || !state.graph) return;
+  const row = (id, tag) => {
+    const n = state.byId.get(id); if(!n) return "";
+    return `<button class="xitem" data-goto="${esc(id)}"><span>${esc(n.label)}</span><span class="xp">${esc((n.evidence&&n.evidence.path)||"")}</span><span class="xs">${tag}</span></button>`;
+  };
+  const idOf = k => state.byExploreKey.get(k);
+  const marks = Object.keys(explore.items).filter(k=>explore.items[k].b && idOf(k));
+  const recent = explore.recent.filter(k=>idOf(k)).slice(0,15);
+  el.innerHTML = `
+    <div class="xrow"><button class="btn" id="xNext">Next unexplored →</button>
+      <label class="ev-toggle"><input type="checkbox" id="xFog" ${explore.fog?"checked":""}> Dim opened</label></div>
+    <h3>Bookmarks</h3>${marks.length ? marks.map(k=>row(idOf(k),"★")).join("") : `<div class="xempty">None yet. Use ☆ Bookmark in the inspector.</div>`}
+    <h3>Recently opened</h3>${recent.length ? recent.map(k=>{ const s=exploreStat(idOf(k)); return row(idOf(k), s==="changed"?"changed":s==="reviewed"?"reviewed":"opened"); }).join("") : `<div class="xempty">Nothing opened yet.</div>`}
+    <p class="xnote">Opened = you clicked it. Reviewed = you marked it. Neither is evidence; tested and verified claims live in findings. Saved in this browser, per project; not part of the bundle.
+    Dimming is off in the Security view so grade colours stay exact.</p>
+    <div class="xrow" style="margin-top:10px"><button class="btn" id="xClear">Clear history</button></div>`;
+  el.querySelectorAll("[data-goto]").forEach(b=>b.addEventListener("click",()=>goTo(b.getAttribute("data-goto"))));
+  document.getElementById("xNext").addEventListener("click",goNextUnexplored);
+  document.getElementById("xFog").addEventListener("change",ev=>{ explore.fog = ev.target.checked; saveExplore(); refreshColors(); });
+  document.getElementById("xClear").addEventListener("click",()=>{
+    if(!confirm("Forget everything you have opened, reviewed and bookmarked in this project?")) return;
+    explore.items = {}; explore.recent = []; saveExplore(); refreshColors(); renderExplorePanel();
+    if(state.selected) openInspector(state.selected);
+  });
+}
+function goNextUnexplored(){
+  let target = state.selected ? nextUnexplored(state.selected, neighborsOf, isUnexplored) : null;
+  if(!target){   // nothing connected is left: take the best-connected unexplored file
+    let best = -1;
+    for(const n of state.graph.nodes){
+      if(n.kind!=="file" || !isUnexplored(n.id)) continue;
+      const nb = state.nbr.get(n.id); const d = nb ? nb.importsIn.length + nb.importsOut.length + nb.contains.length : 0;
+      if(d > best){ best = d; target = n.id; }
+    }
+  }
+  if(target) goTo(target);
+}
+/* Move to a component from anywhere (links, search, history): make it drawn, select it, then fly to it. */
+function goTo(id){
+  if(!state.byId.has(id)) return;
+  const wasDrawn = state.drawn && state.drawn.has(id);
+  ensureVisible(id);
+  openInspector(id);
+  setTimeout(()=>focusNode(id), wasDrawn ? 0 : 900);   // a newly drawn node has no position until the layout settles
+}
+
 let FG = null;
 
 function indexGraph(g){
@@ -499,7 +698,7 @@ function indexGraph(g){
 // `expanded` shows that one file's members even while the rest stay collapsed.
 // Pure (no globals) so it is unit-testable.
 function collapseForDetail(nodes, edges, opts){
-  const { detail, expanded, containerOf, filters, cap } = opts;
+  const { detail, expanded, containerOf, filters, cap, pinned } = opts;
   const fileIds = new Set(nodes.filter(n=>n.kind==="file").map(n=>n.id));
   const fileOf = id => fileIds.has(id) ? id : (containerOf.get(id) || id);
   let visNodes = nodes.filter(n => detail==="full" || n.kind==="file" || expanded.has(fileOf(n.id)));
@@ -510,6 +709,7 @@ function collapseForDetail(nodes, edges, opts){
   // nodes stay in the bundle + search, they're just not drawn. `capped` reports
   // how many were withheld so the UI can say so.
   let capped = 0;
+  const beforeCap = visNodes;
   if(cap && visNodes.length > cap){
     const deg = new Map();
     const inc = id => deg.set(id, (deg.get(id)||0)+1);
@@ -519,6 +719,10 @@ function collapseForDetail(nodes, edges, opts){
       (x.kind==="file"?0:1)-(y.kind==="file"?0:1) || (deg.get(y.id)||0)-(deg.get(x.id)||0));
     capped = visNodes.length - cap;
     visNodes = ranked.slice(0, cap);
+    if(pinned && pinned.size){            // what the person selected, bookmarked or recently opened stays drawn
+      const have = new Set(visNodes.map(n=>n.id));
+      for(const n of beforeCap) if(pinned.has(n.id) && !have.has(n.id)){ visNodes.push(n); capped--; }
+    }
   }
   const visSet = new Set(visNodes.map(n=>n.id));
   const linkMap = new Map();
@@ -539,8 +743,15 @@ function fgData(){
   const g = state.graph;
   const containerOf = new Map();
   for(const [id,nb] of (state.nbr||new Map())) if(nb.container) containerOf.set(id, nb.container);
-  const { nodes:vn, links, capped } = collapseForDetail(g.nodes, g.edges, { detail: state.detail, expanded: state.expanded, containerOf, filters: state.filters, cap: MAX_RENDER });
-  const nodes = vn.filter(n=>state.byId.has(n.id)).map(n=>({ id:n.id, kind:n.kind, label:n.label, ref:n }));
+  const { nodes:vn, links, capped } = collapseForDetail(g.nodes, g.edges, { detail: state.detail, expanded: state.expanded, containerOf, filters: state.filters, cap: MAX_RENDER, pinned: pinnedIds() });
+  // reuse the previous node objects so a rebuild keeps their positions instead of restarting the layout
+  const prev = state.nodeObjs || new Map();
+  const nodes = vn.filter(n=>state.byId.has(n.id)).map(n=>{
+    const o = prev.get(n.id); if(o){ o.ref = n; return o; }
+    return { id:n.id, kind:n.kind, label:n.label, ref:n };
+  });
+  state.nodeObjs = new Map(nodes.map(o=>[o.id,o]));
+  state.drawn = new Set(state.nodeObjs.keys());
   const linkOut = links.filter(l=>state.byId.has(l.source)&&state.byId.has(l.target));
   state.shownNodes = nodes.length; state.capped = capped;
   return { nodes, links: linkOut };
@@ -553,7 +764,7 @@ function nodeColor(node){
     if(node.id!==state.selected && !near.has(node.id)) return dim(KIND_COLOR(node.kind));
   }
   if(state.selected===node.id) return css("--accent");
-  return KIND_COLOR(node.kind);
+  return fogged(node.id, KIND_COLOR(node.kind));
 }
 function linkColor(link){
   // Security view: nodes carry the security colours, so lines stay neutral. Otherwise the green of a
@@ -582,11 +793,26 @@ function neighborsOf(id){
   return s;
 }
 
+/* Structural change (detail level, filters, load, a node that was not drawn): rebuild the graph data. */
 function render(){
   const d = fgData();
   FG.graphData(d);
-  FG.nodeColor(nodeColor).linkColor(linkColor);
+  FG.nodeColor(n=>nodeColor(n)).linkColor(l=>linkColor(l));
   syncDetailBtn();
+  updateExploreChip();
+}
+/* Selection / mode / theme / history changed: recolour only. Rebuilding the data would restart the layout. */
+function refreshColors(){
+  FG.nodeColor(n=>nodeColor(n)).linkColor(l=>linkColor(l));
+  updateExploreChip();
+}
+
+/* Fit the connected structure; a few unlinked nodes drift far out and would otherwise shrink everything. */
+function fitView(){
+  FG.zoomToFit(600, 80, n=>{
+    const nb = state.nbr.get(n.id); if(!nb) return true;
+    return nb.callsOut.length + nb.callsIn.length + nb.importsOut.length + nb.importsIn.length + nb.contains.length > 0 || !!nb.container;
+  });
 }
 
 function syncDetailBtn(){
@@ -674,7 +900,9 @@ function evidenceGrid(n){
 
 function openInspector(id){
   const n = state.byId.get(id); if(!n) return;
+  const wasDrawn = state.drawn && state.drawn.has(id);
   state.selected = id;
+  markVisited(n);
   const insp = document.getElementById("inspector");
   document.getElementById("inspKind").textContent = (n.kind==="file"?"SOURCE FILE":"FUNCTION")+" · SOURCE RECORD";
   document.getElementById("inspTitle").textContent = n.label;
@@ -688,6 +916,7 @@ function openInspector(id){
   const body = `
     <p class="plain">${esc(plainText(n))}</p>
     ${role?`<p class="role">${esc(role)}</p>`:""}
+    ${exploreBar(n)}
     <div class="connects"><h3>Connected components</h3>${connRows(n)}</div>
     ${sourceSection(n)}
     ${security?securitySection(n):""}
@@ -702,20 +931,35 @@ function openInspector(id){
   bodyEl.innerHTML = body;
   insp.classList.add("open");
 
-  bodyEl.querySelectorAll("[data-goto]").forEach(b=>b.addEventListener("click",()=>{
-    const t=b.getAttribute("data-goto"); focusNode(t); openInspector(t);
-  }));
+  bodyEl.querySelectorAll("[data-goto]").forEach(b=>b.addEventListener("click",()=>goTo(b.getAttribute("data-goto"))));
   renderLesson(n.id);
   wireSource();
+  wireExploreBar(n);
 
   const evWrap=document.getElementById("evidence"), evTog=document.getElementById("evToggle");
   const toggle=()=>{ const open=evWrap.classList.toggle("open"); evTog.setAttribute("aria-expanded",open); };
   evTog.addEventListener("click",toggle);
   evTog.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();} });
 
-  render();
+  if(wasDrawn) refreshColors(); else render();   // a node the cap had withheld is drawn now (it is pinned)
+  if(!document.getElementById("xpanel").hidden) renderExplorePanel();
 }
-function closeInspector(){ state.selected=null; document.getElementById("inspector").classList.remove("open"); render(); }
+function exploreBar(n){
+  const rec = explore.items[exploreKey(n)] || {};
+  return `<div class="xbar"><span class="xstat">${esc(statLine(n))}</span>
+    <button class="btn" data-x="bookmark" aria-pressed="${rec.b?"true":"false"}">${rec.b?"★ Bookmarked":"☆ Bookmark"}</button>
+    <button class="btn" data-x="review" aria-pressed="${exploreStatus(rec,n)==="reviewed"?"true":"false"}">✓ Mark reviewed</button>
+    <button class="btn" data-x="next">Next unexplored →</button></div>`;
+}
+function wireExploreBar(n){
+  document.querySelectorAll("#inspBody [data-x]").forEach(b=>b.addEventListener("click",()=>{
+    const what = b.getAttribute("data-x");
+    if(what==="next"){ goNextUnexplored(); return; }
+    exploreFlag(n, what==="bookmark" ? "b" : "r");
+    openInspector(n.id);
+  }));
+}
+function closeInspector(){ state.selected=null; document.getElementById("inspector").classList.remove("open"); refreshColors(); }
 
 /* ---- Source section: the actual code for the selected node, line-tagged ---*/
 function sourceSection(n){
@@ -737,13 +981,19 @@ function sourceSection(n){
     return `<div class="src-line${hot?' hot':''}"><span class="src-no">${no}</span><span class="src-code">${esc(ln)||" "}</span></div>`;
   }).join("");
   const more = end<lines.length ? `<div class="src-more">… ${lines.length-end} more lines</div>` : "";
+  const truncated = !!(state.truncatedSources && state.truncatedSources.has(n.evidence.path));
+  state.copyPayload = { excerpt: lines.slice(start-1,end).join("\n"), path: n.evidence.path + ":" + target, plainPath: n.evidence.path, file: truncated ? null : code };
+  const meta = `<div class="src-meta${truncated?" warn":""}">lines ${start}–${end} of ${lines.length}${truncated?" · this file was cut at build time: the full file is not in the bundle":""}</div>`;
+  const actions = `<div class="src-actions"><button class="btn" data-copy="excerpt">Copy shown lines</button>
+    <button class="btn" data-copy="path">Copy path:line</button>
+    <button class="btn" data-copy="file" ${truncated?'disabled title="Not available: only part of this file is embedded"':''}>Copy full file</button></div>`;
   const f = state.findingByNode.get(n.id);
   const tag = (state.mode==="security" && f) ? `<span class="src-tag" style="background:var(${GRADECSS[gradeOf(n.id)]})">${f.kind==="control"?"CONTROL":f.grade}</span>` : "";
   return `<div class="srcwrap" id="srcwrap">
     <div class="src-toggle" id="srcToggle" role="button" tabindex="0" aria-expanded="false">
       <span class="caret">▶</span> View source <span class="src-path">${esc(n.evidence.path)}:${target}</span> ${tag}
     </div>
-    <div class="src"><div class="src-inner">${rows}${more}</div></div></div>`;
+    <div class="src">${meta}${actions}<div class="src-inner">${rows}${more}</div></div></div>`;
 }
 function wireSource(){
   const wrap=document.getElementById("srcwrap"); if(!wrap) return;
@@ -752,6 +1002,12 @@ function wireSource(){
     if(open){ const hot=wrap.querySelector(".src-line.hot"); if(hot) hot.scrollIntoView({block:"center"}); } };
   tog.addEventListener("click",toggle);
   tog.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();} });
+  wrap.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",()=>{
+    const c = state.copyPayload; if(!c) return;
+    const what = b.getAttribute("data-copy");
+    const text = what==="excerpt" ? c.excerpt : what==="path" ? c.path : c.file;
+    if(text!=null) copyText(text, b);
+  }));
 }
 
 /* ---- Security section: color-graded finding + ASI context + live link -----*/
@@ -960,6 +1216,10 @@ function loadGraph(raw, {sample=false}={}){
   state.truncatedSources = new Set(((norm.sources)||[]).filter(s=>s.truncated).map(s=>s.path));
   buildFindings(norm.findings);
   loadDone();
+  state.exploreProject = sample ? "sample" : (norm.label || norm.revision || "g");
+  state.nodeObjs = null; state.drawn = new Set();
+  indexExploreKeys();
+  loadExplore();
   const name = norm.productName || PRODUCT.name;
   document.getElementById("brandName").textContent = name;
   document.getElementById("seal").textContent = PRODUCT.seal;
@@ -972,7 +1232,7 @@ function loadGraph(raw, {sample=false}={}){
   const empty = document.getElementById("empty");
   empty.hidden = norm.graph.nodes.length > 0;
   empty.textContent = "No graph nodes found in this project.";
-  setTimeout(()=>FG.zoomToFit(600,80),400);
+  setTimeout(fitView,400);
 }
 
 function showLoadError(message){
@@ -1030,7 +1290,7 @@ function buildFG(){
     .onNodeClick(n=>{
       // bounded loading: clicking a collapsed file reveals just its members
       if(state.detail==="files" && n.kind==="file" && !state.expanded.has(n.id)){ state.expanded.add(n.id); render(); }
-      focusNode(n.id); openInspector(n.id);
+      goTo(n.id);
     })
     .onBackgroundClick(()=>closeInspector())
     .warmupTicks(40)
@@ -1125,7 +1385,7 @@ window.addEventListener("DOMContentLoaded",()=>{
     r.onerror=()=>{ showLoadError("Could not read the selected bundle."); ev.target.value=""; };
     r.readAsText(f);
   });
-  document.getElementById("fitBtn").addEventListener("click",()=>FG.zoomToFit(600,80));
+  document.getElementById("fitBtn").addEventListener("click",fitView);
   document.getElementById("inspClose").addEventListener("click",closeInspector);
   document.querySelectorAll(".modes button").forEach(b=>b.addEventListener("click",()=>applyMode(b.dataset.mode)));
   document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>{
@@ -1139,17 +1399,25 @@ window.addEventListener("DOMContentLoaded",()=>{
     if(e.key!=="Enter") return;
     const q=search.value.trim().toLowerCase(); if(!q) return;
     const hit=state.graph.nodes.find(n=>n.label.toLowerCase().includes(q)||(n.evidence&&n.evidence.path||"").toLowerCase().includes(q));
-    if(hit){ focusNode(hit.id); openInspector(hit.id); }
+    if(hit) goTo(hit.id);
   });
 
   // theme
   const themeBtn=document.getElementById("themeBtn");
+  try{ const t=localStorage.getItem("atlas-theme"); if(t==="dark"||t==="electric"||t==="light"){ document.documentElement.setAttribute("data-theme",t); FG.backgroundColor(css("--bg")); } }catch{}
   themeBtn.addEventListener("click",()=>{
-    const cur=document.documentElement.getAttribute("data-theme");
+    const order=["dark","electric","light"];
     const sysDark=window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const next = cur ? (cur==="dark"?"light":"dark") : (sysDark?"light":"dark");
+    const cur=document.documentElement.getAttribute("data-theme") || (sysDark?"dark":"light");
+    const next = order[(order.indexOf(cur)+1)%order.length];
     document.documentElement.setAttribute("data-theme",next);
-    FG.backgroundColor(css("--bg")); render();
+    try{ localStorage.setItem("atlas-theme",next); }catch{}
+    FG.backgroundColor(css("--bg")); refreshColors();
+  });
+  document.getElementById("exploreBtn").addEventListener("click",()=>{
+    const panel=document.getElementById("xpanel");
+    panel.hidden=!panel.hidden;
+    if(!panel.hidden) renderExplorePanel();
   });
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",()=>{
     if(!document.documentElement.getAttribute("data-theme")){ FG.backgroundColor(css("--bg")); render(); }
