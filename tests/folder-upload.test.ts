@@ -16,6 +16,30 @@ assert.throws(() => validateUpload({ name: "fixture", files: [] }));
 assert.throws(() => validateUpload({ name: "fixture", files: [{ path: "a.ts", code: "x".repeat(200001) }] }));
 assert.throws(() => validateUpload({ name: "fixture", files: [{ path: "a.ts", code: "" }, { path: "A.ts", code: "" }] }));
 
+// The page opens on a built bundle when one is configured (re-read per load), else the sample.
+import { mkdtempSync, writeFileSync as writeFile } from "node:fs";
+import { tmpdir } from "node:os";
+import { join as joinPath } from "node:path";
+const bundleDir = mkdtempSync(joinPath(tmpdir(), "atlas-page-"));
+const bundleFile = joinPath(bundleDir, "atlas.bundle.json");
+const tiny = (label: string) => ({ schemaVersion: "1.0", product: { name: "Code Atlas" }, repository: { label, revision: "t" },
+  generatedAt: new Date().toISOString(), graph: { version: "t", revision: "t", nodes: [], edges: [], diagnostics: [] } });
+const pageOf = async (opts: Parameters<typeof createAtlasServer>[0]) => {
+  const s = createAtlasServer(opts); s.listen(0, "127.0.0.1"); await once(s, "listening");
+  const p = (s.address() as any).port; const html = await (await fetch(`http://127.0.0.1:${p}/`)).text();
+  s.closeAllConnections(); await new Promise<void>((r) => s.close(() => r())); return html;
+};
+assert.ok((await pageOf({})).includes("fn_resolve"), "with no bundle the page shows the built-in sample graph");
+assert.ok((await pageOf({ bundlePath: joinPath(bundleDir, "missing.json") })).includes("fn_resolve"), "a missing bundle falls back to the sample");
+writeFile(bundleFile, JSON.stringify(tiny("first-label-from-disk")));
+const served = await pageOf({ bundlePath: bundleFile });
+assert.ok(served.includes("first-label-from-disk"), "the page is rendered from the bundle on disk");
+assert.ok(/id="atlas-upload-config">{"token":"[0-9a-f]{64}"}/.test(served), "the Open folder token is still present");
+writeFile(bundleFile, JSON.stringify(tiny("second-label-after-rebuild")));
+assert.ok((await pageOf({ bundlePath: bundleFile })).includes("second-label-after-rebuild"), "a rebuilt bundle shows on the next load, no restart");
+writeFile(bundleFile, "{ not json");
+assert.ok((await pageOf({ bundlePath: bundleFile })).includes("fn_resolve"), "a corrupt bundle falls back to the sample instead of failing");
+
 const server = createAtlasServer();
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
