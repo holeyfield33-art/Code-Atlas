@@ -41,6 +41,8 @@ services:
       ATLAS_MCP_API_KEY: "${ATLAS_MCP_API_KEY:-}"
       ATLAS_MCP_PORT: "${ATLAS_MCP_PORT:-8000}"
       ATLAS_BUNDLE: /data/atlas.bundle.json
+      # "1" also accepts the key inside the URL (for tunnel clients; see docs/mcp-setup.md)
+      ATLAS_ALLOW_URL_KEY: "${ATLAS_ALLOW_URL_KEY:-}"
     ports:
       - "127.0.0.1:${ATLAS_MCP_PORT:-8000}:${ATLAS_MCP_PORT:-8000}"
     volumes:

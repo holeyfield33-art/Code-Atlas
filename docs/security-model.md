@@ -57,6 +57,10 @@ safeguard, not a guarantee.
   calls do not yet cap the number of calls, argument size, or intermediate result size,
   and `atlas_exec` does not apply the input bounds that the direct tools enforce
   (for example a token budget). This is being addressed with the sandbox work.
+- **URL-embedded key (opt-in, off by default).** `ATLAS_ALLOW_URL_KEY=1` also accepts the
+  key in the URL for clients that cannot send a header (a tunnel client). URLs are logged
+  and shown more freely than headers; this server never logs them, but the client side
+  might. Wrong URL keys count toward the same lockout. Use only on the same machine.
 - **No per-client identity.** One shared bearer key; no OAuth, per-client keys or audit
   log. Whether a hosted client accepts a static bearer key is unverified.
 - **No TLS.** Put a TLS terminator in front before any non-loopback use.

@@ -129,6 +129,33 @@ await withServer({ allowedHosts: ["atlas.internal"] }, async (_url, port) => {
   assert.strictEqual((await raw(port, { host: "atlas.internal" })).status, 200, "an operator-allowed Host is accepted");
 });
 
+// ---- key in the URL: OFF by default, opt-in for clients that cannot send a header
+const noAuthHeaders = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+const listBody = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+await withServer({}, async (url) => {
+  const viaQuery = await fetch(`${url}/mcp?key=${apiKey}`, { method: "POST", headers: noAuthHeaders, body: listBody });
+  assert.strictEqual(viaQuery.status, 404, "by default a URL key is not even routed");
+  const viaPath = await fetch(`${url}/mcp/${apiKey}`, { method: "POST", headers: noAuthHeaders, body: listBody });
+  assert.strictEqual(viaPath.status, 404, "by default /mcp/<key> does not exist");
+});
+await withServer({ allowUrlKey: true }, async (url) => {
+  const ok = async (u: string) => { const r = await fetch(u, { method: "POST", headers: noAuthHeaders, body: listBody }); return r.status === 200 ? ((await r.json()) as any).result.tools.length : r.status; };
+  assert.strictEqual(await ok(`${url}/mcp?key=${apiKey}`), 9, "?key= authenticates");
+  assert.strictEqual(await ok(`${url}/mcp/${apiKey}`), 9, "/mcp/<key> authenticates");
+  assert.strictEqual(await ok(`${url}/mcp/${apiKey}/`), 9, "a trailing slash is tolerated");
+  assert.strictEqual(await ok(`${url}/mcp?key=${"x".repeat(32)}`), 401, "a wrong URL key is rejected");
+  assert.strictEqual(await ok(`${url}/mcp`), 401, "no key anywhere is rejected");
+  assert.strictEqual(await ok(`${url}/mcp?key=`), 401, "an empty key is rejected");
+  assert.strictEqual(await ok(`${url}/mcp/${apiKey}/extra`), 404, "extra path segments are not routed");
+  assert.strictEqual((await post(url, { jsonrpc: "2.0", id: 1, method: "tools/list" })).status, 200, "the header still works alongside");
+  assert.strictEqual((await fetch(`${url}/healthz`)).status, 200);
+});
+await withServer({ allowUrlKey: true, maxAuthFailuresPerMinute: 3 }, async (url) => {
+  const bad = () => fetch(`${url}/mcp?key=${"z".repeat(32)}`, { method: "POST", headers: noAuthHeaders, body: listBody });
+  for (let i = 0; i < 3; i++) assert.strictEqual((await bad()).status, 401);
+  assert.strictEqual((await bad()).status, 429, "wrong URL keys count toward the lockout");
+});
+
 // ---- rate limits
 await withServer({ maxAuthFailuresPerMinute: 3 }, async (url) => {
   const attempt = () => post(url, { jsonrpc: "2.0", id: 1, method: "tools/list" }, { ...jsonHeaders, authorization: `Bearer ${"y".repeat(32)}` });
