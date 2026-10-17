@@ -1,0 +1,63 @@
+# Code Atlas, started and stopped with Docker Compose. See docs/docker.md.
+#
+#   docker compose up -d app          # local web app            http://127.0.0.1:4173
+#   docker compose up -d mcp          # MCP over HTTP (read-only) http://127.0.0.1:8000/mcp
+#   docker compose down               # stop everything
+#   ATLAS_SRC=/path/to/repo docker compose run --rm build    # make ./atlas/atlas.bundle.json
+#
+# Every published port is bound to the HOST's 127.0.0.1 only: nothing here is
+# reachable from your network. Containers are non-root, drop all capabilities and
+# run with a read-only root filesystem.
+
+name: code-atlas
+
+x-hardening: &hardening
+  image: code-atlas:local
+  build: .
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+  tmpfs: ["/tmp"]
+
+services:
+  app:
+    <<: *hardening
+    command: ["app"]
+    environment:
+      ATLAS_APP_PORT: "${ATLAS_APP_PORT:-4173}"
+    ports:
+      - "127.0.0.1:${ATLAS_APP_PORT:-4173}:${ATLAS_APP_PORT:-4173}"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.ATLAS_APP_PORT+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  mcp:
+    <<: *hardening
+    command: ["mcp"]
+    environment:
+      ATLAS_MCP_API_KEY: "${ATLAS_MCP_API_KEY:-}"
+      ATLAS_MCP_PORT: "${ATLAS_MCP_PORT:-8000}"
+      ATLAS_BUNDLE: /data/atlas.bundle.json
+    ports:
+      - "127.0.0.1:${ATLAS_MCP_PORT:-8000}:${ATLAS_MCP_PORT:-8000}"
+    volumes:
+      # Read-only mount: the HTTP server is read-only anyway; this makes it physical.
+      - ./atlas:/data:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.ATLAS_MCP_PORT+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: on-failure:3
+
+  # One-shot: scan a source tree (mounted read-only) into ./atlas.
+  build:
+    <<: *hardening
+    profiles: ["tools"]
+    command: ["build"]
+    volumes:
+      - "${ATLAS_SRC:-./}:/src:ro"
+      - ./atlas:/data

@@ -15,7 +15,7 @@
     "test": "tsx tests/schema.test.ts && tsx tests/generator.test.ts && tsx tests/findings.test.ts && tsx tests/adapter.test.ts && tsx tests/mcp.test.ts && tsx tests/security.test.ts && tsx tests/multilang.test.ts && tsx tests/build.test.ts && tsx tests/threat-rules.test.ts && tsx tests/course-multilang.test.ts && tsx tests/vue.test.ts && tsx tests/triage.test.ts && tsx tests/redos.test.ts && tsx tests/coverage.test.ts && tsx tests/edge-confidence.test.ts && tsx tests/viewer-security.test.ts && tsx tests/bounded-loading.test.ts && tsx tests/atlas-exec.test.ts && tsx tests/provenance.test.ts && tsx tests/ruby-precision.test.ts && tsx tests/audit-regressions.test.ts && tsx tests/mcp-http.test.ts && tsx tests/folder-upload.test.ts && tsx tests/viewer-loading.test.ts"
   },
   "engines": {
-    "node": ">=20"
+    "node": "^20.0.0 || ^22.0.0"
   },
   "license": "Apache-2.0",
   "dependencies": {

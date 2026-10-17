@@ -67,9 +67,12 @@ export function createAtlasServer() {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
-    const address = req.socket.localPort;
-    const host = `127.0.0.1:${address}`;
-    if (req.headers.host !== host) { res.writeHead(403).end(); return; }
+    // The page is only valid under the loopback names a browser on THIS machine uses
+    // (127.0.0.1 or localhost, on the port we serve). Any other Host is refused, which
+    // defeats DNS rebinding; Origin below must then match the Host the browser used.
+    const port = req.socket.localPort;
+    const host = req.headers.host ?? "";
+    if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) { res.writeHead(403).end(); return; }
     if (req.method === "GET" && req.url === "/") {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.end(renderViewer(null, token)); return;
@@ -90,11 +93,17 @@ export function createAtlasServer() {
   });
 }
 
-export async function serveAtlas(port = 4173) {
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
+
+/** `host` defaults to loopback. Binding anything else (e.g. 0.0.0.0 inside a container
+ *  whose published port is itself loopback-only) must be asked for with allowRemote. */
+export async function serveAtlas(port = 4173, host = "127.0.0.1", allowRemote = false) {
+  if (!LOOPBACK.has(host.toLowerCase()) && !allowRemote)
+    throw new Error(`Refusing to bind ${host}: this app analyzes local source and has no login. Pass --allow-remote only when something else (e.g. a loopback-only published container port) keeps it private.`);
   const server = createAtlasServer();
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(port, "127.0.0.1", resolve);
+    server.listen(port, host, resolve);
   });
   console.log(`Code Atlas ready: http://127.0.0.1:${(server.address() as any).port}`);
   console.log("Open this URL and choose Open folder. Press Ctrl+C to stop.");
