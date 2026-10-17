@@ -30,9 +30,10 @@ program
   .option("--no-security", "skip the findings scanner")
   .option("--max-files <n>", "max files to analyze (default 2000); omitted files are counted in coverage", (v) => parseInt(v, 10))
   .option("--max-bytes <n>", "max bytes per file (default 200000)", (v) => parseInt(v, 10))
-  .action(async (path: string, opts: { out: string; product: string; rules?: string; findingsReport?: string; security: boolean; maxFiles?: number; maxBytes?: number }) => {
+  .option("--label <name>", "project name shown in the bundle (default: the folder name)")
+  .action(async (path: string, opts: { out: string; product: string; rules?: string; findingsReport?: string; security: boolean; maxFiles?: number; maxBytes?: number; label?: string }) => {
     const { bundle, langSummary, redactionCount, findingsCount, unmappedReport } =
-      await buildAtlas(path, { product: opts.product, rules: opts.rules, findingsReport: opts.findingsReport, security: opts.security, maxFiles: opts.maxFiles, maxBytes: opts.maxBytes });
+      await buildAtlas(path, { product: opts.product, rules: opts.rules, findingsReport: opts.findingsReport, security: opts.security, maxFiles: opts.maxFiles, maxBytes: opts.maxBytes, repoLabel: opts.label });
 
     mkdirSync(opts.out, { recursive: true });
     writeFileSync(join(opts.out, "atlas.bundle.json"), JSON.stringify(bundle, null, 2));

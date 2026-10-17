@@ -5,6 +5,10 @@
 #   docker compose down               # stop everything
 #   ATLAS_SRC=/path/to/repo docker compose run --rm build    # make ./atlas/atlas.bundle.json
 #
+# ATLAS_DATA_DIR selects the bundle folder (default ./atlas); `-Project <name>` in scripts/atlas.ps1
+# sets it to ./atlas/<name> and runs a separate compose project, so several codebases can have their
+# own MCP server side by side.
+#
 # Every published port is bound to the HOST's 127.0.0.1 only: nothing here is
 # reachable from your network. Containers are non-root, drop all capabilities and
 # run with a read-only root filesystem.
@@ -29,7 +33,7 @@ services:
     volumes:
       # The page opens on your latest built bundle (read-only) instead of the sample graph,
       # and a rebuild shows up on refresh. "Open folder" still analyzes any project.
-      - ./atlas:/data:ro
+      - "${ATLAS_DATA_DIR:-./atlas}:/data:ro"
     ports:
       - "127.0.0.1:${ATLAS_APP_PORT:-4173}:${ATLAS_APP_PORT:-4173}"
     healthcheck:
@@ -52,7 +56,7 @@ services:
       - "127.0.0.1:${ATLAS_MCP_PORT:-8000}:${ATLAS_MCP_PORT:-8000}"
     volumes:
       # Read-only mount: the HTTP server is read-only anyway; this makes it physical.
-      - ./atlas:/data:ro
+      - "${ATLAS_DATA_DIR:-./atlas}:/data:ro"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.ATLAS_MCP_PORT+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -65,6 +69,8 @@ services:
     <<: *hardening
     profiles: ["tools"]
     command: ["build"]
+    environment:
+      ATLAS_LABEL: "${ATLAS_LABEL:-}"
     volumes:
       - "${ATLAS_SRC:-./}:/src:ro"
-      - ./atlas:/data
+      - "${ATLAS_DATA_DIR:-./atlas}:/data"

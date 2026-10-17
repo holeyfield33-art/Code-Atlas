@@ -38,6 +38,10 @@ case "$mode" in
     ;;
   build)
     # Source is mounted read-only at /src; output goes to /data.
+    # ATLAS_LABEL names the project in the bundle (otherwise it would be called "src", the mount name).
+    if [ -n "${ATLAS_LABEL:-}" ]; then
+      exec node dist/cli.js build /src --out /data --label "$ATLAS_LABEL" "$@"
+    fi
     exec node dist/cli.js build /src --out /data "$@"
     ;;
   *)
