@@ -11,6 +11,16 @@ Turn a repository into a **source-grounded 3D code map** and a **grounded Break 
 
 > Working name. The product name is not hardcoded: it is read from the bundle and set with `--product`.
 
+## Quick start (Docker)
+
+```powershell
+.scriptsatlas.ps1 build C:path	oyourproject   # macOS/Linux/WSL: ./scripts/atlas.sh build /path/to/project
+.scriptsatlas.ps1 start                           # web app http://127.0.0.1:4173 + MCP server http://127.0.0.1:8000/mcp
+.scriptsatlas.ps1 stop
+```
+
+Then connect your agent: **[docs/mcp-setup.md](docs/mcp-setup.md)** (Claude Code, Claude Desktop, Cursor, VS Code, Codex). Everything is documented from [docs/README.md](docs/README.md); read [docs/known-limits.md](docs/known-limits.md) and [docs/security-model.md](docs/security-model.md) before relying on a result. Report vulnerabilities per [SECURITY.md](SECURITY.md).
+
 ## What it does
 
 ```bash

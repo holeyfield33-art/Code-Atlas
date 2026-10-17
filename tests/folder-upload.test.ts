@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { createAtlasServer, validateUpload } from "../src/server.js";
+import { request as httpRequest } from "node:http";
+import { createAtlasServer, validateUpload, serveAtlas } from "../src/server.js";
 import { parseBundle } from "../src/schema.js";
 
 const files = [
@@ -19,6 +20,15 @@ const server = createAtlasServer();
 server.listen(0, "127.0.0.1");
 await once(server, "listening");
 const base = `http://127.0.0.1:${(server.address() as any).port}`;
+const port = (server.address() as any).port;
+const getWithHost = (host: string) => new Promise<number>((resolve, reject) => {
+  const r = httpRequest({ host: "127.0.0.1", port, path: "/", headers: { host } }, (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+  r.on("error", reject); r.end();
+});
+assert.equal(await getWithHost(`localhost:${port}`), 200, "localhost is an accepted loopback name");
+assert.equal(await getWithHost("evil.example"), 403, "a foreign Host is refused (DNS rebinding)");
+assert.equal(await getWithHost(`localhost:${port + 1}`), 403, "the wrong port is refused");
+await assert.rejects(serveAtlas(0, "0.0.0.0"), /Refusing to bind/, "a non-loopback bind needs --allow-remote");
 try {
   const response = await fetch(base);
   assert.equal(response.status, 200);

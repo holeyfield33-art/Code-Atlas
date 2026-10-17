@@ -1,0 +1,14 @@
+node_modules
+dist
+atlas
+.git
+.github
+.env
+.env.*
+!.env.example
+docs
+tests
+*.log
+test-records
+.scratch
+.vscode

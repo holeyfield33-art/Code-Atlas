@@ -71,11 +71,13 @@ program
 program
   .command("serve")
   .description("Start the local app (127.0.0.1 only) with an Open folder button.")
-  .option("-p, --port <number>", "loopback port", "4173")
-  .action(async (opts: { port: string }) => {
+  .option("-p, --port <number>", "port", "4173")
+  .option("--host <address>", "interface to bind", "127.0.0.1")
+  .option("--allow-remote", "permit a non-loopback bind (containers)")
+  .action(async (opts: { port: string; host: string; allowRemote?: boolean }) => {
     const port = Number(opts.port);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("Invalid port");
-    await serveAtlas(port);
+    await serveAtlas(port, opts.host, Boolean(opts.allowRemote));
   });
 
 // `code-atlas` with no command opens the local app.
