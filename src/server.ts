@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage } from "node:http";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { buildAtlas } from "./build.js";
@@ -83,6 +83,17 @@ export interface AtlasServerOptions {
 export function createAtlasServer(options: AtlasServerOptions = {}) {
   const token = randomBytes(32).toString("hex");
   let busy = false;
+  // Rendering a large bundle into the page takes seconds and tens of MB: do it once per bundle file
+  // version (a rebuild changes mtime/size, so a refresh still shows the new map), not on every request.
+  let page: { key: string; html: string } | undefined;
+  const pageHtml = () => {
+    let key = "sample";
+    if (options.bundlePath) { try { const st = statSync(options.bundlePath); key = st.mtimeMs + ":" + st.size; } catch { key = "missing"; } }
+    if (page?.key === key) return page.html;
+    const html = renderViewer(loadBundleForPage(options.bundlePath), token);
+    page = { key, html };
+    return html;
+  };
   return createServer(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -93,9 +104,10 @@ export function createAtlasServer(options: AtlasServerOptions = {}) {
     const port = req.socket.localPort;
     const host = req.headers.host ?? "";
     if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) { res.writeHead(403).end(); return; }
+    if (req.method === "GET" && req.url === "/healthz") { res.setHeader("Content-Type", "text/plain"); res.end("ok"); return; }   // cheap liveness for the container health check
     if (req.method === "GET" && req.url === "/") {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.end(renderViewer(loadBundleForPage(options.bundlePath), token)); return;
+      res.end(pageHtml()); return;
     }
     if (req.method !== "POST" || req.url !== "/api/build") { res.writeHead(404).end(); return; }
     if (req.headers.origin !== `http://${host}` || req.headers["x-atlas-token"] !== token) {

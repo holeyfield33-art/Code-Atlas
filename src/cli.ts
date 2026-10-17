@@ -11,6 +11,7 @@ import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { AtlasBundleSchema } from "./schema.js";
 import { exportBundles } from "./exportFiles.js";
+import { correlate, formatMarkdown } from "./correlate.js";
 import { buildAtlas } from "./build.js";
 import { renderViewer } from "./viewer.js";
 import { serveAtlas } from "./server.js";
@@ -112,6 +113,32 @@ program
     for (const f of files) writeFileSync(join(opts.out, f.name), f.text);
     console.log(`Wrote ${files.length} files to ${opts.out}:`);
     for (const f of files) console.log(`  ${f.name}  ${Math.round(Buffer.byteLength(f.text) / 1024)} KB`);
+  });
+
+program
+  .command("correlate")
+  .description("Join the routes found in code with the endpoints SurfaceTrace has observed: a read-only worklist (nothing is sent or executed).")
+  .argument("<bundle>", "atlas.bundle.json (or a folder holding one)")
+  .requiredOption("--campaign <source>", "a saved SurfaceTrace /api/campaign/index JSON file, or its loopback URL (http://127.0.0.1:5173/api/campaign/index)")
+  .option("--host <name>", "only endpoints observed on this host")
+  .option("--json", "machine-readable output instead of Markdown")
+  .option("-o, --out <file>", "write the report here instead of printing it")
+  .action(async (bundlePath: string, opts: { campaign: string; host?: string; json?: boolean; out?: string }) => {
+    const file = existsSync(join(bundlePath, "atlas.bundle.json")) ? join(bundlePath, "atlas.bundle.json") : bundlePath;
+    const bundle = AtlasBundleSchema.parse(JSON.parse(readFileSync(file, "utf8")));
+    let campaign: any;
+    if (/^https?:\/\//i.test(opts.campaign)) {
+      const u = new URL(opts.campaign);
+      if (u.hostname !== "127.0.0.1" && u.hostname !== "localhost" && u.hostname !== "[::1]") throw new Error("Only a loopback URL is read (127.0.0.1 or localhost); save the JSON to a file for anything else.");
+      const res = await fetch(u, { method: "GET", signal: AbortSignal.timeout(8000), redirect: "error" });
+      if (!res.ok) throw new Error("Campaign source answered " + res.status);
+      const text = await res.text();
+      if (text.length > 50_000_000) throw new Error("Campaign index is larger than 50 MB");
+      campaign = JSON.parse(text);
+    } else campaign = JSON.parse(readFileSync(opts.campaign, "utf8"));
+    const result = correlate(bundle, campaign, { host: opts.host });
+    const text = opts.json ? JSON.stringify(result, null, 2) : formatMarkdown(result);
+    if (opts.out) { writeFileSync(opts.out, text); console.log("Wrote " + opts.out); } else console.log(text);
   });
 
 program

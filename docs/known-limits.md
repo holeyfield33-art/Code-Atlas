@@ -39,6 +39,8 @@ are the limits to keep in mind when reading a map or a finding.
   calls are scanned, but they have no call edges (the receiver of `this.x()` / `obj.x()` is not
   resolved). Handlers written as inline callbacks are judged as part of the function that
   contains them. Details and the rule semantics: [scanner-rules.md](scanner-rules.md).
+- **HTTP routes** are read from JS/TS registrations only (Express / Fastify style). A mount prefix is not applied, a path built at
+  run time is not seen, and Ruby / Python routes are not read yet. See [surfacetrace.md](surfacetrace.md).
 - **Findings are leads.** A rule match (dynamic code execution, shell-out, unsafe
   deserialization, secret-like handlers) shows a risky *shape*, not an exploitable path.
   Absence of a finding is not evidence of safety.

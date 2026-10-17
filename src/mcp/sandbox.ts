@@ -30,7 +30,7 @@ import type { AtlasTools } from "./tools.js";
  *  method that returns JSON-serializable data and never mutates the bundle.
  *  triage is intentionally absent: the sandbox cannot write. */
 const READ_METHODS = [
-  "overview", "search", "getNode", "getSource", "neighbors", "contextPack", "threats", "findings", "course",
+  "overview", "search", "getNode", "getSource", "neighbors", "contextPack", "threats", "findings", "routes", "course",
 ] as const;
 type ReadMethod = (typeof READ_METHODS)[number];
 const ALLOWED = new Set<string>(READ_METHODS);
@@ -80,6 +80,7 @@ const BOOTSTRAP = `
       contextPack: (task, budget)=> __call("contextPack", [task, budget]),
       threats:     (ref)         => __call("threats", [ref]),
       findings:    (filter)      => __call("findings", [filter]),
+      routes:      (filter)      => __call("routes", [filter]),
       course:      (id)          => __call("course", [id]),
     });
   })();

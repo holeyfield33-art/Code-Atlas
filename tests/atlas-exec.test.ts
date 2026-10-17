@@ -53,6 +53,11 @@ assert.strictEqual(direct.total, (bundle.findings ?? []).length, "unfiltered tot
 assert.ok(direct.returned <= 5, "limit bounds the rows");
 assert.strictEqual((tools.findings({ kind: "no-such-kind" }) as any).total, 0, "a filter that matches nothing returns nothing");
 
+// 2c) routes found in code are listable in the sandbox, same as the direct call
+const rr = run(`return atlas.routes({ limit: 5 });`);
+assert.strictEqual(rr.ok, true, "routes() runs in the sandbox");
+assert.deepStrictEqual(rr.result, tools.routes({ limit: 5 }), "sandbox routes() matches the direct call");
+
 // 3) reproducible receipt: same code+bundle => same hash; different code => different hash
 const a = run(`return 1 + 1;`), b = run(`return 1 + 1;`), c = run(`return 2 + 2;`);
 assert.strictEqual(a.receipt.hash, b.receipt.hash, "same code+bundle => same receipt");

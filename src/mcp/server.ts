@@ -131,7 +131,7 @@ export function buildServer(ctx: AtlasCtx, opts: BuildServerOptions = {}): McpSe
       title: "Run a read-only query against the atlas",
       description:
         "ONE programmable read tool. Write JavaScript that calls a frozen, read-only `atlas` API and `return`s a value — filter, join, aggregate, or traverse in a single call instead of chaining fixed tools. " +
-        "Available (all read-only): atlas.overview(), atlas.search(query, limit?), atlas.getNode(id), atlas.getSource(id), atlas.neighbors(id, kinds?), atlas.contextPack(task, budgetTokens?), atlas.threats(ref), atlas.findings({kind?, grade?, rule?, path?, triaged?, limit?}) (list findings without knowing an id), atlas.course(id). " +
+        "Available (all read-only): atlas.overview(), atlas.search(query, limit?), atlas.getNode(id), atlas.getSource(id), atlas.neighbors(id, kinds?), atlas.contextPack(task, budgetTokens?), atlas.threats(ref), atlas.findings({kind?, grade?, rule?, path?, triaged?, limit?}) (list findings without knowing an id), atlas.routes({method?, path?, file?, limit?}) (HTTP routes found in JS/TS code, with their handlers and leads), atlas.course(id). " +
         "The code runs in an isolate with NO network, filesystem, require, import, process, or timers — only `atlas`. There is no way to write or mutate the bundle from here. A wall-clock timeout and memory cap bound every run, and the response carries a replayable receipt (sha256 of code + bundle). " +
         "Example: `const o = atlas.overview(); return o.entryPoints.map(e => ({ id: e.id, threats: atlas.threats(e.id).findings.length }));`",
       inputSchema: {

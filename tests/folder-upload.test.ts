@@ -40,6 +40,20 @@ assert.ok((await pageOf({ bundlePath: bundleFile })).includes("second-label-afte
 writeFile(bundleFile, "{ not json");
 assert.ok((await pageOf({ bundlePath: bundleFile })).includes("fn_resolve"), "a corrupt bundle falls back to the sample instead of failing");
 
+// one long-lived server: a repeat load reuses the rendered page, a rebuilt bundle file shows on the next load, /healthz is cheap
+writeFile(bundleFile, JSON.stringify(tiny("cached-label-one")));
+const live = createAtlasServer({ bundlePath: bundleFile }); live.listen(0, "127.0.0.1"); await once(live, "listening");
+const livePort = (live.address() as any).port;
+const getPage = async () => (await fetch(`http://127.0.0.1:${livePort}/`)).text();
+assert.ok((await getPage()).includes("cached-label-one"));
+assert.ok((await getPage()).includes("cached-label-one"), "a second load serves the same page");
+await new Promise((r) => setTimeout(r, 30));
+writeFile(bundleFile, JSON.stringify(tiny("cached-label-two-longer")));
+assert.ok((await getPage()).includes("cached-label-two-longer"), "a rebuilt bundle file is picked up without a restart");
+const hz = await fetch(`http://127.0.0.1:${livePort}/healthz`);
+assert.equal(hz.status, 200); assert.equal(await hz.text(), "ok");
+live.closeAllConnections(); await new Promise<void>((r) => live.close(() => r()));
+
 const server = createAtlasServer();
 server.listen(0, "127.0.0.1");
 await once(server, "listening");

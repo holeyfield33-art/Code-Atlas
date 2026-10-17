@@ -4,6 +4,7 @@
 |---|---|
 | start and stop Code Atlas with one command | [docker.md](docker.md) |
 | connect Claude Code, Claude Desktop, Cursor, VS Code or Codex | [mcp-setup.md](mcp-setup.md) |
+| pair the routes in code with what SurfaceTrace has observed | [surfacetrace.md](surfacetrace.md) |
 | keep track of what I have opened in a large map | [exploring.md](exploring.md) |
 | analyse a project from the browser, or understand the scan limits | [ingestion.md](ingestion.md) |
 | know what it protects and what it does not | [security-model.md](security-model.md) |

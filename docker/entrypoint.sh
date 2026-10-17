@@ -40,6 +40,10 @@ case "$mode" in
     # Split a mounted source tree into shards (prints the plan; builds nothing).
     exec node dist/cli.js plan /src "$@"
     ;;
+  correlate)
+    # Read-only join of the bundle's code routes with a saved SurfaceTrace campaign index (see docs/surfacetrace.md).
+    exec node dist/cli.js correlate "$@"
+    ;;
   build)
     # Source is mounted read-only at /src; output goes to /data.
     # ATLAS_LABEL names the project in the bundle (otherwise it would be called "src", the mount name).
