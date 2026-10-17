@@ -22,6 +22,7 @@ many("app/models", 5); many("app/services", 6); many("app/assets/js", 4, "js"); 
 many("spec/models", 5); many("app/spec", 2);                    // tests: skipped by name at any depth
 many("db/migrate", 10);                                         // one flat folder bigger than a small cap
 many("ee/spec/lib", 3); many("ee/app", 4);
+put("root_a.py"); put("root_b.rb");                              // supported sources at the ROOT of the repo
 put("README.md", "# docs\n"); put("node_modules/dep/index.js", "var a=1\n");
 
 const rels = (files: { relativePath: string }[]) => files.map((f) => f.relativePath).sort();
@@ -36,6 +37,10 @@ assert.equal(scopeOf("lib", rules), "direct", "`dir/.` = the folder's own files 
 assert.equal(scopeOf("lib/sub", rules), "none", "...and not its subfolders");
 assert.equal(scopeOf("db", rules), "none");
 assert.equal(scopeOf("anything", []), "all", "no includes = the whole tree");
+const rootOnly = parseIncludes(["."]);
+assert.equal(scopeOf("", rootOnly), "direct", "`.` alone is the root's own files");
+assert.equal(scopeOf("app", rootOnly), "none", "...and not its subfolders");
+assert.deepEqual(rels(scanWorkspace(root, { include: ["."] }).files), ["root_a.py", "root_b.rb"], "include `.` scans exactly the root-level sources");
 
 // ---- --include: only those folders, root-relative paths, the rest counted
 const inc = scanWorkspace(root, { include: ["app/models", "lib/."] });

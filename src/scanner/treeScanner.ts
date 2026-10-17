@@ -47,8 +47,11 @@ export function normScopePath(p: string): string {
 
 interface IncludeRule { path: string; direct: boolean; }
 export function parseIncludes(include: string[] | undefined): IncludeRule[] {
-  return (include ?? []).map(normScopePath).filter((x) => x && x !== ".").map((x) =>
-    x.endsWith("/.") ? { path: x.slice(0, -2), direct: true } : { path: x, direct: false });
+  // A lone `.` is the ROOT's own files (not its subfolders): the planner emits it for a repo's root-level
+  // sources. (Dropping it silently lost them: 14 root files of a 35,000-file tree.)
+  return (include ?? []).map(normScopePath).filter((x) => x).map((x) =>
+    x === "." ? { path: "", direct: true }
+    : x.endsWith("/.") ? { path: x.slice(0, -2), direct: true } : { path: x, direct: false });
 }
 
 /** How a directory relates to the include list: "all" (files and subtree in scope), "direct" (only its own files),
