@@ -88,8 +88,15 @@ foreach ($s in $plan.shards) {
   Write-Host ("Building {0} ({1} files)..." -f $proj, $s.files)
   $envArgs = @("-e", "ATLAS_LABEL=$proj", "-e", "ATLAS_SKIP=$Skip")
   if (@($s.include).Count) { $envArgs += @("-e", ("ATLAS_INCLUDE=" + ((@($s.include)) -join ","))) }
-  $out = Run-Atlas $envArgs $dir @("build")
+  # The scanner's own default cap is 2,000 files; a shard may hold up to -MaxFiles, so pass it explicitly
+  # (without this a 2,514-file shard silently lost 514 files: the bundle's coverage showed overCap).
+  $out = Run-Atlas $envArgs $dir @("build", "--max-files", "$([Math]::Max($MaxFiles, [int]$s.files))")
   $line = $out | Where-Object { $_ -match 'nodes \(' } | Select-Object -Last 1
+  # Safety check: the bundle must hold exactly the files the plan promised.
+  $cov = $out | Where-Object { $_ -match 'coverage: analyzed (\d+)/' } | Select-Object -Last 1
+  if ($cov -and $cov -match 'analyzed (\d+)/' -and [int]$Matches[1] -ne [int]$s.files) {
+    Write-Warning ("{0}: planned {1} files but the bundle analyzed {2}: some files were left out (see its coverage)." -f $proj, $s.files, $Matches[1])
+  }
   Write-Host ("  " + ($line -replace '^\s+', '') + ("  [{0:n0}s]" -f ((Get-Date) - $t0).TotalSeconds))
   $rows += $proj
 }
