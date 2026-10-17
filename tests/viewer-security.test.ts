@@ -60,4 +60,7 @@ const plainText = new Function("state", "labelFor", grab(/function plainText\(n\
   { nbr: new Map([["fn", { callsIn: ["c"], callsOut: ["d"], inf: new Set(["c", "d"]), container: null }]]) }, (id: string) => id) as (n: any) => string;
 assert.match(plainText({ id: "fn", kind: "function" }), /matched by name only, not proven/, "inferred calls are flagged in the plain-language summary");
 
+// --- security view: lines are neutral, so a green "calls" line cannot read as a hardened control
+assert.ok(html.includes('if(state.mode==="security") return css("--k-contains");'), "linkColor is neutral in security mode");
+
 console.log("viewer-security.test: esc neutralizes attr breakout; all data-goto ids escaped; unverified controls are not hardened-green");

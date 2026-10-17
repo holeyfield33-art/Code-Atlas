@@ -46,8 +46,17 @@ function functionSources(code: string): Map<string, string> {
 // A DOTTED token (`fs.writeFileSync`, `db.exec`) names its receiver, so it is specific
 // enough to match as a method call too (and after `this.`): the free-call restriction
 // exists only to stop a bare `exec`/`query` matching `regex.exec(...)` / `arr.query(...)`.
-const callsName = (src: string, name: string, freeOnly = false) =>
-  new RegExp((freeOnly && !name.includes(".") ? "(?<!\\.)" : (name.includes(".") ? "(?<![\\w$])" : "")) + "\\b" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\(").test(src);
+const callsName = (src: string, rawName: string, freeOnly = false) => {
+  // a trailing `*` (`verify*`) matches any call whose name starts with it: verifyReceiptChain(...)
+  const prefix = rawName.endsWith("*") && !rawName.startsWith("*");
+  const name = prefix ? rawName.slice(0, -1) : rawName;
+  const re = new RegExp((freeOnly && !name.includes(".") ? "(?<!\\.)" : (name.includes(".") ? "(?<![\\w$])" : "")) + "\\b" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + (prefix ? "[\\w$]*" : "") + "\\s*\\(", "g");
+  for (let m = re.exec(src); m; m = re.exec(src)) {
+    // `run(inst) {` is a method DEFINITION (object/class shorthand), not a call: skip it.
+    if (!/^[^()]*\)\s*\{/.test(src.slice(m.index + m[0].length))) return true;
+  }
+  return false;
+};
 
 /** Rule conditions on the function's name/text that are not calls. `nameNotMatches`
  *  removes protective names (a redactor is not a secret leak); `textAny` requires one of
@@ -57,6 +66,7 @@ const callsName = (src: string, name: string, freeOnly = false) =>
 function nameTextOk(when: Rule["when"], fnName: string, body: string): boolean {
   if (when.nameNotMatches && compileNameMatcher(when.nameNotMatches)(fnName)) return false;
   if (when.textAny && !when.textAny.some((t) => body.includes(t))) return false;
+  if (when.textMatches && !compileNameMatcher(when.textMatches)(body)) return false;
   return true;
 }
 

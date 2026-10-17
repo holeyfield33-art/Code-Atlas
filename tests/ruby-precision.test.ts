@@ -284,10 +284,10 @@ assert.ok(!has("go -> staged_value"), "a def from a file that failed to parse is
 
 // ---- rule precision: real sinks still fire, look-alikes do not
 assert.ok(flagged("rb-os-command", "shell"), "paren-less `system cmd` is flagged");
-assert.ok(flagged("rb-os-command", "literal_shell"), "`system \"ls\"` is flagged");
+assert.ok(!flagged("rb-os-command", "literal_shell"), "`system \"ls\"` runs one fixed command and is not reported");
 assert.ok(flagged("rb-os-command", "kernel_shell"), "`Kernel.system` is flagged");
 assert.ok(flagged("rb-code-exec", "code"), "`eval(src)` is flagged");
-assert.ok(flagged("rb-code-exec", "dispatch"), "`obj.send(m)` is flagged (dynamic dispatch on any receiver)");
+assert.ok(flagged("rb-dynamic-dispatch", "dispatch"), "`obj.send(m)` is flagged (method name from a variable, any receiver)");
 assert.ok(!flagged("rb-os-command", "run_sql"), "`conn.exec(sql)` is not Kernel#exec");
 assert.ok(!flagged("rb-code-exec", "fixed_dispatch"), "`send(:literal)` dispatches to one fixed method, not dynamic code");
 

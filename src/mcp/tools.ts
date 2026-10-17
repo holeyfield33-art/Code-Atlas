@@ -174,6 +174,25 @@ export class AtlasTools {
     return { ref, findings: found, note: "Grade reflects how this was verified; a dependency link alone does not establish exploitability. A disposition is a human/agent triage decision and never upgrades the grade." };
   }
 
+  /** List findings without knowing a node id or path first (threats() needs one). Compact rows;
+   *  filter by kind, grade, rule id, a path fragment or disposition. Read-only. */
+  findings(filter: { kind?: string; grade?: string; rule?: string; path?: string; triaged?: boolean; limit?: number } = {}) {
+    const limit = Math.min(Math.max(Math.floor(Number(filter.limit) || 200), 1), 1000);
+    const rows: any[] = []; let total = 0;
+    for (const f of this.bundle.findings ?? []) {
+      const rule = (f.evidence[0]?.source ?? "").replace("code-atlas/rule:", "");
+      const node = this.byId.get(f.nodeRefs[0]);
+      if (filter.kind && f.kind !== filter.kind) continue;
+      if (filter.grade && f.grade !== filter.grade) continue;
+      if (filter.rule && !rule.includes(filter.rule)) continue;
+      if (filter.path && !(node?.evidence.path ?? "").includes(filter.path)) continue;
+      if (filter.triaged !== undefined && Boolean(f.disposition) !== filter.triaged) continue;
+      total++;
+      if (rows.length < limit) rows.push({ id: f.id, kind: f.kind, grade: f.grade, rule, title: f.title, node: node ? this.brief(node.id) : null, disposition: f.disposition?.status ?? null });
+    }
+    return { total, returned: rows.length, findings: rows, note: "Static leads unless graded OBSERVED/TESTED. Use atlas_threats(id) for the explanation and blast radius." };
+  }
+
   course(id: string) {
     const l = this.lessonByNode.get(id);
     if (!l) return { id, lesson: null, note: "no lesson attached to this node" };

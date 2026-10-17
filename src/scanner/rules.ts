@@ -24,6 +24,9 @@ export interface RuleWhen {
   /** The body text contains at least one of these substrings (e.g. `req.body`). Plain
    *  substring match, so a comment can satisfy it: one signal among several. */
   textAny?: string[];
+  /** The body text matches this RE2 pattern (linear time, case-insensitive), e.g. a command that is
+   *  not a string literal. Like textAny it reads text, so a comment can satisfy it. */
+  textMatches?: string;
   /** Suppress the finding if any of these substrings appears in the body text.
    *  For guards that are NOT calls (e.g. a keyword argument `Loader=SafeLoader`),
    *  which call-token matching can't see. Only ever REMOVES a finding, so a
@@ -68,7 +71,9 @@ const DB_SINKS = [...DB_FREE, ...DB_METHODS];
 const FILE_READ_SINKS = ["readFileSync", "readFile", "createReadStream", "sendFile",
   "fs.readFile", "fs.readFileSync", "fs.createReadStream", "fs.promises.readFile", "fsp.readFile", "res.sendFile", "reply.sendFile"];
 const NETWORK_SINKS = ["fetch", "axios", "got", "http.request", "https.request", "http.get", "https.get"];
-const VALIDATORS = ["validate", "sanitize", "assert", "check", "guard", "parse", "safeParse", "zod", "schema"];
+// A trailing * matches any name that starts with it (verifyReceiptChain, checkAccess, assertValid). `parse` stays exact:
+// parseInt / parseFloat validate nothing.
+const VALIDATORS = ["validate*", "sanitize", "assert*", "check*", "guard*", "verify*", "parse", "safeParse", "zod", "schema"];
 
 export const DEFAULT_RULES: Rule[] = [
   {
@@ -200,8 +205,17 @@ export const RUBY_RULES: Rule[] = [
     id: "rb-code-exec", kind: "weakness", grade: "STATIC",
     title: "Dynamic code execution",
     explanation:
-      "This method reaches a dynamic code-execution primitive (eval / instance_eval / class_eval / send). If any part of the argument is attacker-influenced this is arbitrary code or method execution. Static lead only.",
-    when: { callsAny: ["eval", "*.instance_eval", "*.class_eval", "*.module_eval", "*.send", "*.public_send"] },
+      "This method reaches a dynamic code-execution primitive: eval, or instance_eval / class_eval / module_eval with an interpolated string or request params. Block forms (class_eval do ... end) are normal Ruby and are not reported. If any part of the string is attacker-influenced this is arbitrary code execution. Static lead only.",
+    when: { callsAny: ["eval", "*.instance_eval", "*.class_eval", "*.module_eval"], textMatches: "\\beval\\b|#[{]|params|request[.]" },
+    blast: "callers",
+    asi: asi("AAC-11"),
+  },
+  {
+    id: "rb-dynamic-dispatch", kind: "weakness", grade: "STATIC",
+    title: "Method chosen from request input",
+    explanation:
+      "This method calls send / public_send with a method name that is not a literal symbol (a variable, an interpolated string, or request params), so a caller-supplied value may choose which method runs. send(:name) is normal Ruby and is not reported, and neither is a call carrying a reviewed `rubocop:disable GitlabSecurity/PublicSend` comment. Static lead only: trace where the name comes from.",
+    when: { callsAny: ["*.send", "*.public_send"], textMatches: "params|request[.]|\\b(send|public_send)\\b\\s*[(]?\\s*([a-z_@$]|[\"'][^\"']*#[{])", guardText: ["GitlabSecurity/PublicSend"] },
     blast: "callers",
     asi: asi("AAC-11"),
   },
@@ -209,8 +223,8 @@ export const RUBY_RULES: Rule[] = [
     id: "rb-os-command", kind: "weakness", grade: "STATIC",
     title: "OS command execution",
     explanation:
-      "This method shells out (system / exec / Open3 / %x). If the command string is attacker-influenced this is command injection. Static lead — not proof the input is untrusted.",
-    when: { callsAny: ["system", "exec", "Open3.capture2", "Open3.capture3", "Open3.popen3", "Kernel.system"], callsNoneOf: ["Shellwords.escape", "*.shellescape"] },
+      "This method shells out (system / exec / Open3) with a command that is not a plain string literal (a variable, interpolation, or request params). If that command is attacker-influenced this is command injection. Literal commands (system('git', 'push')) are not reported. Static lead — not proof the input is untrusted.",
+    when: { callsAny: ["system", "exec", "Open3.capture2", "Open3.capture3", "Open3.popen3", "Kernel.system"], textMatches: "#[{]|params|request[.]|\\b(system|exec|capture2|capture3|popen3)\\b\\s*[(]?\\s*[a-z_@$]", callsNoneOf: ["Shellwords.escape", "*.shellescape"] },
     blast: "callers",
     asi: asi("AAC-11"),
   },
@@ -225,10 +239,15 @@ export const RUBY_RULES: Rule[] = [
   },
   {
     id: "rb-raw-secret", kind: "weakness", grade: "STATIC",
-    title: "Secret-like handling without visible redaction",
+    title: "Secret-like handling that logs or sends data, without visible redaction",
     explanation:
-      "This method's name suggests it handles secret material (token / password / credential / api_key) and no redaction call is visible inside it. Static lead only.",
-    when: { nameMatches: "(token|secret|password|credential|api_?key)", callsNoneOf: ["*.redact", "*.mask", "*.sanitize"] },
+      "This method's name suggests it handles secret material (token / password / credential / api_key), it writes a log line, prints, writes a file or sends an HTTP request, and no redaction call is visible inside it. Predicates, setters and protective names (valid?, verify, hash, encrypt, mask...) are not reported. Static lead only: a name is a hint, not proof that a secret reaches the log or request.",
+    when: {
+      nameMatches: "(token|secret|password|passwd|credential|api_?key|private_?key)",
+      nameNotMatches: "[?]$|^(redact|mask|sanitize|scrub|strip|hash|digest|validate|verify|is_|has_|check|assert|ensure|match|compare|safe|fingerprint|encrypt|decrypt|can_|allow|permit)|(matches|match|equals|valid|present|count|length|fingerprint|digest|hash|kind|type|params|path|url|ids?|enabled|expired|name)$",
+      callsAny: ["logger.info", "logger.warn", "logger.error", "logger.debug", "logger.fatal", "AppLogger.info", "AppLogger.warn", "AppLogger.error", "Gitlab::AppLogger.info", "Gitlab::AppLogger.warn", "Gitlab::AppLogger.error", "puts", "print", "pp", "File.write", "File.open", "File.binwrite", "Net::HTTP.post", "Net::HTTP.get", "HTTParty.post", "HTTParty.get", "Faraday.post", "Faraday.get", "Gitlab::HTTP.post", "Gitlab::HTTP.get", "Gitlab::HTTP.put"],
+      callsNoneOf: ["*.redact", "*.mask", "*.sanitize", "*.filter_attributes"],
+    },
     blast: "none",
     asi: asi("AAC-09"),
   },
@@ -284,7 +303,7 @@ export function validateRules(input: unknown): Rule[] {
     if (r.kind !== "weakness" && r.kind !== "control") throw new Error(`Rule ${r.id}: kind must be weakness|control`);
     if (r.grade !== "STATIC" && r.grade !== "INFERRED") throw new Error(`Rule ${r.id}: a static rule's grade must be STATIC or INFERRED`);
     // Compile now so an unsafe/invalid pattern is rejected at LOAD, never at scan time.
-    for (const field of ["nameMatches", "nameNotMatches"] as const) {
+    for (const field of ["nameMatches", "nameNotMatches", "textMatches"] as const) {
       if (typeof r.when[field] === "string") {
         try { compileNameMatcher(r.when[field]); }
         catch (e) { throw new Error(`Rule ${r.id}: ${e instanceof Error ? e.message : e}`); }
