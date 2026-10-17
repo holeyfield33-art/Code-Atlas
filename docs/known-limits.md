@@ -32,6 +32,10 @@ are the limits to keep in mind when reading a map or a finding.
   (`user.save`) gets no edge and a diagnostic listing the candidates. Rails autoloading,
   `method_missing`, DSL-defined methods and dynamic dispatch are invisible. On a large
   partial sample most Ruby calls are therefore *unresolved*; that is expected.
+- **JS/TS class members** are mapped as `Class.member` nodes so their file writes and database
+  calls are scanned, but they have no call edges (the receiver of `this.x()` / `obj.x()` is not
+  resolved). Handlers written as inline callbacks are judged as part of the function that
+  contains them. Details and the rule semantics: [scanner-rules.md](scanner-rules.md).
 - **Findings are leads.** A rule match (dynamic code execution, shell-out, unsafe
   deserialization, secret-like handlers) shows a risky *shape*, not an exploitable path.
   Absence of a finding is not evidence of safety.
