@@ -18,7 +18,8 @@ macOS / Linux / WSL / Git Bash: the same with `./scripts/atlas.sh`.
 |---|---|
 | `start [app\|mcp\|all]` | start the web app and/or the MCP server (the MCP server starts only once a bundle exists) |
 | `stop` | stop and remove the containers (your `atlas/` folder and `.env` are untouched) |
-| `restart [app\|mcp\|all]` | restart; needed after rebuilding a bundle |
+| `restart [app\|mcp\|all]` | **recreates** the containers, so a rebuilt image, a rebuilt bundle or an edited `.env` takes effect (plain `docker compose restart` keeps the old image and environment) |
+| `tunnel-url` | copy the MCP URL with the key embedded, for a tunnel client (needs `ATLAS_ALLOW_URL_KEY=1`; see [mcp-setup.md](mcp-setup.md)) |
 | `status` | running containers and whether a bundle exists |
 | `logs [app\|mcp]` | follow logs |
 | `build <path>` | scan a project into `atlas/` (source mounted read-only) |

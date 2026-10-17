@@ -33,6 +33,11 @@ export interface HttpServerOptions {
   allowTriage?: boolean;
   /** Permit binding a non-loopback interface. Default false. */
   allowRemote?: boolean;
+  /** Also accept the API key inside the URL (`/mcp?key=KEY` or `/mcp/KEY`), for clients
+   *  whose connection form cannot send a header (e.g. a tunnel client configured with a
+   *  server URL). OFF by default: a URL is logged and displayed far more freely than a
+   *  header, so use it only on a private path such as a loopback-to-tunnel hop. */
+  allowUrlKey?: boolean;
   /** Extra Host header names to accept (public DNS name behind a proxy). */
   allowedHosts?: string[];
   /** Browser Origins to accept, e.g. "https://app.example". Default none. */
@@ -41,6 +46,13 @@ export interface HttpServerOptions {
   maxRequestsPerMinute?: number;
   /** Failed authentications per client per minute before 429. Default 10. */
   maxAuthFailuresPerMinute?: number;
+}
+
+/** Constant-time string equality (length is not secret here). */
+export function keysMatch(candidate: string | null | undefined, apiKey: string): boolean {
+  if (!candidate) return false;
+  const a = Buffer.from(candidate, "utf8"), b = Buffer.from(apiKey, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export function isValidBearerToken(authorization: string | undefined, apiKey: string): boolean {
@@ -180,10 +192,19 @@ export async function startHttpServer(ctx: AtlasCtx, options: HttpServerOptions)
       }
 
       if (req.url === "/healthz" && req.method === "GET") { sendJson(res, 200, { status: "ok" }); return; }
-      if (req.url !== "/mcp") { sendJson(res, 404, { error: "Not found" }); return; }
+      // Route. Default: exactly `/mcp`. With allowUrlKey the key may ride in the query
+      // (`/mcp?key=...`) or as a path segment (`/mcp/<key>`); we never log the URL.
+      let urlKey: string | null = null;
+      if (options.allowUrlKey) {
+        let u: URL;
+        try { u = new URL(req.url ?? "", "http://localhost"); } catch { sendJson(res, 404, { error: "Not found" }); return; }
+        const m = /^\/mcp(?:\/([^/]+))?\/?$/.exec(u.pathname);
+        if (!m) { sendJson(res, 404, { error: "Not found" }); return; }
+        try { urlKey = m[1] ? decodeURIComponent(m[1]) : u.searchParams.get("key"); } catch { urlKey = null; }
+      } else if (req.url !== "/mcp") { sendJson(res, 404, { error: "Not found" }); return; }
 
       // 4) authenticate before reading any body
-      if (!isValidBearerToken(req.headers.authorization, options.apiKey)) {
+      if (!isValidBearerToken(req.headers.authorization, options.apiKey) && !(options.allowUrlKey && keysMatch(urlKey, options.apiKey))) {
         authFailures.over(client);
         sendJson(res, 401, { error: "Unauthorized" }, { "www-authenticate": 'Bearer realm="code-atlas-mcp"' });
         req.resume();
@@ -239,6 +260,7 @@ export function httpOptionsFromArgs(args: string[], env: NodeJS.ProcessEnv): Req
     port,
     allowTriage: args.includes("--allow-triage"),
     allowRemote: args.includes("--allow-remote"),
+    allowUrlKey: args.includes("--allow-url-key") || env.ATLAS_ALLOW_URL_KEY === "1",
     allowedHosts: [...csv(env.ATLAS_ALLOWED_HOSTS), ...all("--allowed-host")],
     allowedOrigins: [...csv(env.ATLAS_ALLOWED_ORIGINS), ...all("--allowed-origin")],
   };

@@ -11,6 +11,7 @@
 #   rebuild               rebuild the image after updating Code Atlas
 #   key                   create a random MCP API key in .env if none exists
 #   mcp-config            print ready-to-paste client settings (contains your key)
+#   tunnel-url            print the MCP URL with the key embedded (needs ATLAS_ALLOW_URL_KEY=1)
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -60,7 +61,17 @@ case "$cmd" in
     ;;
   rebuild) need_docker; docker compose build; echo "Image rebuilt. Run restart to use it." ;;
   stop)    need_docker; docker compose down ;;
-  restart) need_docker; if [ "$target" = all ]; then docker compose restart; else docker compose restart "$target"; fi ;;
+  restart)
+    # Recreate, don't `docker compose restart`: restart keeps the OLD image and OLD environment,
+    # so a rebuilt image or an edited .env would silently not take effect.
+    need_docker
+    svcs=""
+    case "$target" in app|all) svcs="app";; esac
+    case "$target" in mcp|all) if has_bundle; then ensure_key >/dev/null; svcs="$svcs mcp"; fi;; esac
+    [ -n "$svcs" ] || { echo "Nothing to restart (use app, mcp or all; mcp needs a bundle)." >&2; exit 1; }
+    # shellcheck disable=SC2086
+    docker compose up -d --force-recreate $svcs
+    ;;
   status)  need_docker; docker compose ps; echo; if has_bundle; then echo "Bundle: atlas/atlas.bundle.json present"; else echo "Bundle: none (run build <path>)"; fi ;;
   logs)    need_docker; if [ "$#" -gt 0 ]; then docker compose logs -f --tail 100 "$1"; else docker compose logs -f --tail 100; fi ;;
   build)
@@ -69,6 +80,12 @@ case "$cmd" in
     src="$(cd "$1" && pwd)"; mkdir -p atlas
     ATLAS_SRC="$src" docker compose --profile tools run --rm build
     echo "Bundle written to atlas/atlas.bundle.json (viewer: atlas/viewer.html)."
+    ;;
+  tunnel-url)
+    k="$(ensure_key)"
+    [ "$(env_value ATLAS_ALLOW_URL_KEY)" = 1 ] || { echo "URL keys are off. Add ATLAS_ALLOW_URL_KEY=1 to .env, then: ./scripts/atlas.sh restart mcp" >&2; exit 1; }
+    echo "http://127.0.0.1:$(port ATLAS_MCP_PORT 8000)/mcp?key=$k"
+    echo "This URL contains your key: use it only in a client running on this machine (docs/mcp-setup.md)." >&2
     ;;
   key)     k="$(ensure_key)"; echo "ATLAS_MCP_API_KEY is set in .env (${#k} characters)." ;;
   mcp-config)

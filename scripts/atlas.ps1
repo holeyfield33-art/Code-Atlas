@@ -90,7 +90,16 @@ switch ($Command.ToLower()) {
     if ($svcs -contains "mcp") { Write-Host ("MCP:  http://127.0.0.1:{0}/mcp   (run 'mcp-config' for client settings)" -f (Port "ATLAS_MCP_PORT" "8000")) }
   }
   "stop"    { Need-Docker; Dc down }
-  "restart" { Need-Docker; if ($target -eq "all") { Dc restart } else { Dc restart $target } }
+  "restart" {
+    # Recreate, don't `docker compose restart`: restart keeps the OLD image and OLD environment,
+    # so a rebuilt image or an edited .env would silently not take effect.
+    Need-Docker
+    $svcs = @()
+    if ($target -in @("app", "all")) { $svcs += "app" }
+    if ($target -in @("mcp", "all") -and (Has-Bundle)) { Ensure-Key | Out-Null; $svcs += "mcp" }
+    if ($svcs.Count -eq 0) { throw "Nothing to restart (use app, mcp or all; mcp needs a bundle)." }
+    Dc up -d --force-recreate @svcs
+  }
   "status"  {
     Need-Docker
     Dc ps
@@ -106,6 +115,18 @@ switch ($Command.ToLower()) {
     $env:ATLAS_SRC = $src
     Dc --profile tools run --rm build
     Write-Host "Bundle written to atlas\atlas.bundle.json (viewer: atlas\viewer.html)."
+  }
+  "tunnel-url" {
+    # The MCP URL with the key embedded, for clients that cannot send a header (a tunnel client
+    # run on THIS machine). Needs ATLAS_ALLOW_URL_KEY=1 in .env. Copied to the clipboard, not printed.
+    $k = Ensure-Key
+    if ((Get-EnvValue "ATLAS_ALLOW_URL_KEY") -ne "1") {
+      throw "URL keys are off. Add ATLAS_ALLOW_URL_KEY=1 to .env, then run: .\scripts\atlas.ps1 restart mcp"
+    }
+    $u = "http://127.0.0.1:{0}/mcp?key={1}" -f (Port "ATLAS_MCP_PORT" "8000"), $k
+    Set-Clipboard -Value $u
+    Write-Host "Copied to the clipboard: http://127.0.0.1:$(Port "ATLAS_MCP_PORT" "8000")/mcp?key=<your key>"
+    Write-Host "This URL contains your key: use it only in a client running on this machine (see docs/mcp-setup.md)."
   }
   "rebuild" { Need-Docker; Dc build; Write-Host "Image rebuilt. Run 'restart' to use it." }
   "key"     { $k = Ensure-Key; Write-Host "ATLAS_MCP_API_KEY is set in .env ($($k.Length) characters)." }
@@ -134,6 +155,7 @@ Usage: .\scripts\atlas.ps1 <command>
   rebuild                rebuild the image after updating Code Atlas
   key                    create a random MCP API key in .env if none exists
   mcp-config             print ready-to-paste client settings (contains your key)
+  tunnel-url             copy the MCP URL with the key embedded (needs ATLAS_ALLOW_URL_KEY=1)
 "@
   }
 }
