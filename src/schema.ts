@@ -246,7 +246,9 @@ export type Route = z.infer<typeof RouteSchema>;
 export const AtlasBundleSchema = z.object({
   schemaVersion: z.literal("1.0"),
   product: z.object({ name: z.string() }),          // NOT hardcoded; viewer reads it
-  repository: z.object({ label: z.string(), revision: z.string() }),
+  // revision is a label + the build date. sourceCommit (when the folder is a git checkout) is the commit it was
+  // scanned at, so a map can be matched to a running instance or a later checkout; uncommitted edits are not detected.
+  repository: z.object({ label: z.string(), revision: z.string(), sourceCommit: z.string().optional() }),
   generatedAt: z.string(),                          // ISO
   graph: AtlasGraphSchema,                          // LOCKED
   course: CourseSchema.optional(),                  // v1 course layer

@@ -22,6 +22,8 @@ export interface SourceFile { path: string; code: string; }
 export interface GenOptions {
   product: string;
   repoLabel: string;
+  /** commit the scanned folder was checked out at (read from .git), when it is a git checkout */
+  sourceCommit?: string;
   defectKinds?: Array<"removed_guard" | "broken_call_edge">;
   maxLessons?: number;
   /** function node id -> real body source for NON-JS (tree-sitter) functions.
@@ -281,7 +283,7 @@ export function assembleBundle(graph: AtlasGraph, course: Course, opts: GenOptio
   const bundle: AtlasBundle = {
     schemaVersion: "1.0",
     product: { name: opts.product },
-    repository: { label: opts.repoLabel, revision: graph.revision },
+    repository: { label: opts.repoLabel, revision: graph.revision, ...(opts.sourceCommit ? { sourceCommit: opts.sourceCommit } : {}) },
     generatedAt: new Date().toISOString(),
     graph, course, diagnostics: [],
     ...(security?.findings && security.findings.length ? { findings: security.findings } : {}),
