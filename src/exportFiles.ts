@@ -84,7 +84,7 @@ export function exportBundles(bundles: AtlasBundle[], maxBytes = 900_000): Expor
   const index = [
     "# Code Atlas export: what these files are",
     "",
-    `Source: ${bundles.map((b) => b.repository.label).join(", ")}. Made from a static scan; nothing here was run.`,
+    `Source: ${bundles.map((b) => b.repository.label + (b.repository.sourceCommit ? " @ " + b.repository.sourceCommit.slice(0, 12) : "")).join(", ")}. Made from a static scan; nothing here was run. Check the commit against the instance you are testing.`,
     "",
     "- `leads-NN.md`: places where the code has a risky *shape* (shell-out, dynamic eval, unsafe deserialization, secret-like handlers...). Each is a lead to read and test, not a confirmed bug. The code shown starts at the flagged function.",
     "- `map-NN.md`: every analysed file with its functions (name:line), what it imports and how often other files call into it.",

@@ -382,3 +382,9 @@ suppress blast radius. A disposition never upgrades a finding's grade. Prefer st
 | Results look stale | The bundle is a snapshot; rebuild and restart ([section 7](#7-keeping-it-current)) |
 
 Security details: [security-model.md](security-model.md). Container details: [docker.md](docker.md).
+
+## What an agent is told when it connects
+
+The server sends a short usage guide with the connection (MCP `instructions`): start with `atlas_overview`, read `coverage` and `repository.sourceCommit` before concluding a file does not exist (the map may be partial or one shard of a large repo), search with identifier-like words or path fragments, use `atlas_exec` for joins (`atlas.findings`, `atlas.routes`), and treat findings as static leads. A client that ignores server instructions can be given the same text by hand.
+
+`repository.sourceCommit` is the commit the scanned folder was checked out at (read from `.git`). It identifies the checkout, not a clean tree: uncommitted edits are not detected.

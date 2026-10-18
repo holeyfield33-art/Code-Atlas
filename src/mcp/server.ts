@@ -72,15 +72,27 @@ export interface BuildServerOptions {
   allowTriage?: boolean;
 }
 
+/** Sent to every client at connect time, so an agent knows how to use the tools without being taught. */
+const AGENT_GUIDE = [
+  "Code Atlas is a STATIC, source-linked map of one codebase. It reads code; it never runs it or contacts the target.",
+  "",
+  "Start: atlas_overview. Read `repository` (label, sourceCommit) and `coverage`: the map may be PARTIAL (a file cap, a shard of a large repo, skipped folders). A file that is not found may simply not be in this map, so check coverage before concluding it does not exist. The sourceCommit says which checkout was scanned; compare it with the instance you are testing.",
+  "Find things: atlas_search takes identifier-like words or path fragments ('rotate_service', 'lib/api/projects', 'zoekt cache'), not sentences. It returns ids and locations only. Then atlas_get_source for the code, atlas_neighbors for callers / callees / imports.",
+  "Many questions at once: atlas_exec runs read-only JavaScript against the map in one call. Beyond search/neighbors it has atlas.findings({kind, rule, path, limit}) to list findings, and atlas.routes({method, path, file}) to list the HTTP routes found in JS/TS code with their handlers. Prefer one atlas_exec join over many tool calls.",
+  "",
+  "Honesty rules: a finding is a STATIC lead (a risky shape), never proof of a vulnerability. Python and Ruby call edges are matched by name and marked inferred. Unresolved relationships are diagnostics, not edges. Absence of a finding is not evidence of safety. Routes cover JS/TS only, and a mount prefix is not applied.",
+  "If the code you need is not in the map, read it from the source checkout instead; do not guess.",
+].join("\n");
+
 export function buildServer(ctx: AtlasCtx, opts: BuildServerOptions = {}): McpServer {
-  const server = new McpServer({ name: "code-atlas", version: "0.1.0" });
+  const server = new McpServer({ name: "code-atlas", version: "0.1.0" }, { instructions: AGENT_GUIDE });
 
   server.registerTool("atlas_overview",
     { title: "Repository overview", description: "Orientation: counts, entry points, and the threat summary. Call this first.", inputSchema: {}, annotations: RO },
     async () => ok(ctx.tools.overview()));
 
   server.registerTool("atlas_search",
-    { title: "Find components", description: "Find files/functions by words. Returns ids + locations only (no source) so you can target a follow-up.", inputSchema: { query: z.string(), limit: z.number().int().min(1).max(50).optional() }, annotations: RO },
+    { title: "Find components", description: "Find files/functions by identifier-like words or path fragments (e.g. 'rotate_service', 'lib/api/projects'); filler words are ignored and nodes matching more of the words rank first. Returns ids + locations only (no source) so you can target a follow-up.", inputSchema: { query: z.string(), limit: z.number().int().min(1).max(50).optional() }, annotations: RO },
     async ({ query, limit }) => ok(ctx.tools.search(query, limit)));
 
   server.registerTool("atlas_get_node",

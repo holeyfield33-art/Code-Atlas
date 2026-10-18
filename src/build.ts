@@ -9,6 +9,7 @@ import { basename, resolve } from "node:path";
 import { scanWorkspace, readSource } from "./scanner/treeScanner.js";
 import { buildGraph, type SourceFile } from "./scanner/graph.js";
 import { extractRoutes } from "./scanner/routes.js";
+import { readGitHead } from "./scanner/gitHead.js";
 import { scan, scanGeneric, ingestVibeExplainer } from "./scanner/findings.js";
 import { DEFAULT_RULES, LANGUAGE_RULES, validateRules } from "./scanner/rules.js";
 import { redactSecrets } from "./scanner/redact.js";
@@ -145,7 +146,7 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
     return truncated ? { path: f.relativePath, code, truncated } : { path: f.relativePath, code };
   });
 
-  const bundle = assembleBundle(graph, course, { product, repoLabel: label }, security, inlined, scanned.coverage);
+  const bundle = assembleBundle(graph, course, { product, repoLabel: label, sourceCommit: readGitHead(root) }, security, inlined, scanned.coverage);
   // HTTP routes registered in JS/TS code (not .vue shims): the link from the map to live traffic.
   const routes = extractRoutes(revision, jsSources.filter((s) => !s.hashCode), graph);
   if (routes.length) bundle.routes = routes;

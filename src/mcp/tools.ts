@@ -112,14 +112,27 @@ export class AtlasTools {
     };
   }
 
+  /** Find files / functions by identifier-like words or path fragments. A phrase works, but filler words
+   *  ("a", "the", "for", "find", ...) are ignored and a node that matches MORE of the distinct words ranks
+   *  first, so "personal_access_tokens rotate service" lands on rotate_service.rb, not on every node that contains "a". */
   search(query: string, limit = 10) {
-    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const FILLER = new Set(["a", "an", "the", "of", "to", "in", "on", "for", "and", "or", "is", "are", "by", "with", "from", "that", "this", "find", "show", "get", "where", "how", "what", "which", "code", "file", "files", "function", "method"]);
+    const words = [...new Set(query.toLowerCase().split(/[^a-z0-9_./-]+/).filter((w) => w.length > 1 && !FILLER.has(w)))];
+    if (!words.length) return { query, results: [], hint: "use identifier-like words or a path fragment, e.g. 'rotate_service' or 'lib/api/projects'" };
     const scored = this.bundle.graph.nodes.map((n) => {
-      const hay = (n.label + " " + n.evidence.path).toLowerCase();
-      const score = words.reduce((s, w) => s + (hay.includes(w) ? 1 : 0) + (n.label.toLowerCase() === w ? 2 : 0), 0);
-      return { n, score };
-    }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, limit);
-    return { query, results: scored.map((x) => this.brief(x.n.id)) };
+      const label = n.label.toLowerCase(), path = n.evidence.path.toLowerCase();
+      const base = path.slice(path.lastIndexOf("/") + 1);
+      let matched = 0, score = 0;
+      for (const w of words) {
+        let s = 0;
+        if (label === w) s = 5; else if (path === w || path.endsWith("/" + w)) s = 5;
+        else if (label.includes(w)) s = 3; else if (base.includes(w)) s = 3;
+        else if (path.includes(w)) s = 1;
+        if (s) { matched++; score += s; }
+      }
+      return { n, matched, score: score + (n.kind === "file" ? 0.5 : 0) };
+    }).filter((x) => x.matched > 0).sort((a, b) => b.matched - a.matched || b.score - a.score).slice(0, limit);
+    return { query, matchedWords: words, results: scored.map((x) => this.brief(x.n.id)) };
   }
 
   getNode(id: string) {
