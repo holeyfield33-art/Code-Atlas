@@ -385,6 +385,18 @@ try {
   const allFindingIds = new Set([...findingsPage1.findings.map((f: any) => f.id), ...findingsPage2.findings.map((f: any) => f.id)]);
   assert.strictEqual(allFindingIds.size, 600, "paging with offset reaches every one of the 600 findings");
 
+  // --- finding(id): the only way to reach full detail for a finding past threats()'s ROW_CAP ---
+  // findingsPage2's rows (offset 500+) are compact; "F550" never appears in manyFindingsThreats'
+  // findings array (capped at the first 500), so without finding(id) its explanation/evidence/
+  // blastRadius/asiRef/disposition would be permanently unreachable through any other call.
+  const lateFinding: any = manyFindingsTools.finding("F550");
+  assert.strictEqual(lateFinding.id, "F550");
+  assert.strictEqual(lateFinding.explanation, "e", "full detail is returned, not just the compact findings() row shape");
+  assert.ok(Array.isArray(lateFinding.evidence) && lateFinding.evidence.length, "evidence is present");
+  assert.ok(lateFinding.node && lateFinding.node.id === fn.id, "node reference is resolved");
+  assert.deepStrictEqual(manyFindingsTools.finding("nope"), { error: "unknown finding id", id: "nope", hint: "use atlas_exec's atlas.findings({...}) to find an id" }, "an unknown id reports an error, not a throw");
+  assert.match(findingsPage2.note, /atlas\.finding\(id\)/, "findings()'s note points at the id lookup for full detail");
+
   // --- resolveOverlay() must keep its OUTPUT unresolved array within the schema's cap, even
   // though the two INPUT arrays it draws from (leads whose target fails to resolve, and explicit
   // unresolved entries) are each independently capped at MAX_ENTRIES — a legitimately-sized overlay
@@ -418,6 +430,22 @@ try {
   const tooManyLeads = JSON.parse(JSON.stringify(built.bundle));
   tooManyLeads.threatOverlay.leads = Array.from({ length: 5001 }, (_, i) => ({ ...tooManyLeads.threatOverlay.leads[0], id: `X${i}` }));
   assert.throws(() => parseBundle(tooManyLeads), "a bundle with more than 5,000 leads is rejected even when handed directly to parseBundle");
+
+  // --- parseBundle's duplicate-id check must cover the WHOLE overlay, not just `leads` ---------
+  // resolveOverlay() de-dupes leads and unresolved together under one `seen` set before this
+  // re-validation ever runs via build.ts, so this gap only bites a bundle handed to parseBundle
+  // directly (e.g. the MCP server loading a bundle file) that never went through resolveOverlay().
+  const dupAcrossUnresolved = JSON.parse(JSON.stringify(built.bundle));
+  dupAcrossUnresolved.threatOverlay.unresolved = [
+    { id: "U-DUP", attackClassId: "AAC-01", description: "a", reason: "r" },
+    { id: "U-DUP", attackClassId: "AAC-02", description: "b", reason: "r" },
+  ];
+  assert.throws(() => parseBundle(dupAcrossUnresolved), "a duplicate id reused within `unresolved` is rejected");
+  const dupLeadAndUnresolved = JSON.parse(JSON.stringify(built.bundle));
+  dupLeadAndUnresolved.threatOverlay.unresolved = [
+    { id: dupLeadAndUnresolved.threatOverlay.leads[0].id, attackClassId: "AAC-01", description: "a", reason: "r" },
+  ];
+  assert.throws(() => parseBundle(dupLeadAndUnresolved), "an id shared between a resolved lead and an unresolved entry is rejected");
 
   // --- atlas.threatLeads(): resolved leads are enumerable without knowing a node id first ---
   const allLeads: any = tools.threatLeads();

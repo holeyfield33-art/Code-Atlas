@@ -133,6 +133,14 @@ const hugeClass = [{ attackClassId: "C".repeat(10_000), description: "d", reason
 const hugeClassPanel = unresolvedPanel({ overlay: { ...overlay, unresolved: hugeClass }, showUnresolved: true });
 assert.ok(hugeClassPanel.length < 5_000, "one oversized attackClassId is clipped too, not emitted in full");
 
+// unresolvedDropped (server-persisted: entries that never made it into this bundle at all,
+// beyond the ones the panel's own row cap merely hides) must be surfaced here too, or the
+// panel's "Unresolved (N)" count looks complete even though more records were discarded for good.
+const droppedPanel = unresolvedPanel({ overlay: { ...overlay, unresolved: [], unresolvedDropped: 1_000 }, showUnresolved: true });
+assert.match(droppedPanel, /1000 additional unresolved entry/, "a non-zero unresolvedDropped is reported in the panel");
+const noDropPanel = unresolvedPanel({ overlay: { ...overlay, unresolved: [] }, showUnresolved: true });
+assert.doesNotMatch(noDropPanel, /dropped/, "no drop note is shown when unresolvedDropped is absent/zero");
+
 // A collapsed file stands in for the leads on its hidden functions.
 const leadOnSrc = grab(/function leadOn\(id\)\{[\s\S]*?\n\}/);
 const leadOn = (state: any) => new Function("state", leadOnSrc + "; return leadOn;")(state) as (id: string) => boolean;

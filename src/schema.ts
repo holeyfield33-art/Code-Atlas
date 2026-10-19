@@ -410,6 +410,16 @@ export function parseBundle(input: unknown): AtlasBundle {
       if ((l.status === "observed" || l.status === "verified") && !hasMeaningfulEvidence(l.evidence))
         throw new Error(`Threat lead ${l.id} claims '${l.status}' with no evidence (must be downgraded to 'inferred')`);
     }
+    // resolveOverlay() de-duplicates ids across BOTH leads and unresolved entries (one shared `seen`
+    // set for the whole overlay) before this re-validation ever runs via build.ts. A bundle handed to
+    // us directly (the MCP server's parseBundle path, bypassing build()) skips that de-dup, so without
+    // checking unresolved ids against the same `seen` set here too, a duplicate id reused across or
+    // within `unresolved` — or shared with a resolved lead — would pass, exposing contradictory or
+    // repeated records for one logical lead through atlas_unresolved_leads/atlas_overview.
+    for (const u of bundle.threatOverlay.unresolved) {
+      if (seen.has(u.id)) throw new Error(`Duplicate threat overlay id ${u.id}`);
+      seen.add(u.id);
+    }
   }
   return bundle;
 }

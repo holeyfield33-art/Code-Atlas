@@ -86,6 +86,7 @@ export class AtlasTools {
   private importsOut = new Map<string, string[]>();
   private containerOf = new Map<string, string>();
   private findingsByNode = new Map<string, any[]>();
+  private findingsById = new Map<string, any>();
   private leadsByNode = new Map<string, ThreatLead[]>();
   private lessonByNode = new Map<string, any>();
   private inferredCall = new Set<string>();                    // `${from}->${to}` for name-inferred calls
@@ -106,7 +107,10 @@ export class AtlasTools {
       else if (e.kind === "contains") this.containerOf.set(e.to, e.from);
     }
     for (const l of bundle.threatOverlay?.leads ?? []) push(this.leadsByNode, l.nodeId, l);
-    for (const f of bundle.findings ?? []) for (const ref of f.nodeRefs) push(this.findingsByNode, ref, f);
+    for (const f of bundle.findings ?? []) {
+      for (const ref of f.nodeRefs) push(this.findingsByNode, ref, f);
+      this.findingsById.set(f.id, f);
+    }
     // Same join as the viewer: the defect's own node first, then every taught node.
     const lessons = bundle.course?.lessons ?? [];
     for (const l of lessons) if (!this.lessonByNode.has(l.breakAndFix.nodeRef)) this.lessonByNode.set(l.breakAndFix.nodeRef, l);
@@ -359,8 +363,31 @@ export class AtlasTools {
     const nextOffset = offset + rows.length < total ? offset + rows.length : null;
     return {
       total, returned: rows.length, offset, nextOffset, findings: rows,
-      note: "Static leads unless graded OBSERVED/TESTED. Use atlas_threats(id) for the explanation and blast radius." +
+      // Each row here is compact (same shape threats() also row-caps at 500 per ref), so a finding
+      // beyond that cap on a busy ref had its full detail (explanation/evidence/blastRadius/asiRef/
+      // disposition) permanently unreachable — findings()/threats() both only ever return the first
+      // ROW_CAP in full. finding(id) is the lookup that works at any offset, by id rather than by ref.
+      note: "Static leads unless graded OBSERVED/TESTED. Use atlas_threats(id) for a node's findings with full detail, or atlas.finding(id) via atlas_exec to look up one finding's full detail directly by id (e.g. for a row returned here past atlas_threats' row cap)." +
         (nextOffset !== null ? ` More match than fit in this page; call again with offset=${nextOffset} for the rest.` : ""),
+    };
+  }
+
+  /** One finding's full detail by id — the lookup findings()/threats() can't provide once a busy
+   *  ref has more findings than ROW_CAP: both only return compact or detailed rows for the first
+   *  ROW_CAP, so anything past that is otherwise unreachable in full. Read-only. */
+  finding(id: string) {
+    const f = this.findingsById.get(id);
+    if (!f) return { error: "unknown finding id", id, hint: "use atlas_exec's atlas.findings({...}) to find an id" };
+    const node = this.byId.get(f.nodeRefs[0]);
+    return {
+      id: f.id, kind: f.kind, grade: f.grade, title: f.title, explanation: f.explanation,
+      node: node ? this.brief(node.id) : null,
+      nodeRefs: f.nodeRefs.map((r: string) => this.byId.has(r) ? this.brief(r) : { id: r }),
+      evidence: f.evidence,
+      blastRadius: (castsBlastAfterTriage(f) ? f.blastRadius ?? [] : []).map((x: string) => this.label(x)),
+      asiRef: f.asiRef ?? null,
+      disposition: f.disposition ?? null,
+      note: "A disposition is a human/agent triage decision and never upgrades the grade; blast radius reflects triage (a dismissed/accepted finding propagates nothing).",
     };
   }
 

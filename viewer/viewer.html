@@ -1271,7 +1271,14 @@ function unresolvedPanel(){
   // so opening this panel can't build an unbounded innerHTML assignment.
   const rows = all.slice(0, UNRESOLVED_ROWS_SHOWN).map(u=>`<div class="row"><code>${esc(clip(u.attackClassId, UNRESOLVED_TEXT_CAP))}</code> · ${esc(clip(u.description, UNRESOLVED_TEXT_CAP))}<br><span style="color:var(--fg-faint)">${u.target?`target <code>${esc(clip(u.target, UNRESOLVED_TEXT_CAP))}</code> · `:""}${esc(clip(u.reason, UNRESOLVED_TEXT_CAP))}</span></div>`).join("");
   const overflow = all.length > UNRESOLVED_ROWS_SHOWN ? `<p>+ ${all.length - UNRESOLVED_ROWS_SHOWN} more unresolved entry(ies) not shown.</p>` : "";
-  return `<div class="tm-panel" role="region" aria-label="Unresolved leads"><h3>Unresolved (${all.length})</h3><p>These could not be placed on exactly one component of this graph. They are unknown, not cleared.</p>${rows||"<p>None.</p>"}${overflow}</div>`;
+  // `all.length` is only what the build-time cap (MAX_OVERLAY_ENTRIES) let through; when the
+  // combined synthesized+explicit unresolved count exceeded it, resolveOverlay() persists how
+  // many it had to drop on top of that as `unresolvedDropped` — surface it here too, or the
+  // panel's own count looks complete even though more records were discarded and are gone for
+  // good (unlike the `rows` cap above, there's no page/tool that can recover them).
+  const dropped = Number(o.unresolvedDropped) || 0;
+  const droppedNote = dropped > 0 ? `<p>${dropped} additional unresolved entry(ies) were dropped at build time and cannot be recovered.</p>` : "";
+  return `<div class="tm-panel" role="region" aria-label="Unresolved leads"><h3>Unresolved (${all.length})</h3><p>These could not be placed on exactly one component of this graph. They are unknown, not cleared.</p>${rows||"<p>None.</p>"}${overflow}${droppedNote}</div>`;
 }
 /* A resolved lead the render cap dropped is otherwise invisible in the 3D view with no way to
    find it (the gap Codex flagged after the pin-overflow cap was added). This list is the find-it
@@ -1543,7 +1550,7 @@ function updateLegend(){
     el.innerHTML = o
       ? `<span><i style="background:var(--file)"></i><b>code structure</b></span>
          <span><i class="sq" style="background:var(--lead-ext)"></i><b>security lead (hypothesis)</b></span>
-         <button class="unres-chip" id="unresBtn" aria-expanded="${state.showUnresolved}">unresolved (${(o.unresolved||[]).length})</button>
+         <button class="unres-chip" id="unresBtn" aria-expanded="${state.showUnresolved}">unresolved (${(o.unresolved||[]).length}${Number(o.unresolvedDropped)>0?`+${Number(o.unresolvedDropped)}`:""})</button>
          ${cappedCount ? `<button class="unres-chip" id="cappedLeadsBtn" aria-expanded="${state.showCappedLeads}">not drawn (${cappedCount})</button>` : ""}`
       : `<span><i class="sq" style="background:var(--grade-gray)"></i><b>no threat overlay attached</b></span>`;
     const btn = document.getElementById("unresBtn");
