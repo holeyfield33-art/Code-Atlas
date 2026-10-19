@@ -236,6 +236,13 @@ export const AsiSnapshotSchema = z.object({
 // that build-time schema entirely, so the SAME cap must also live on the bundle schema itself —
 // otherwise an externally produced bundle could carry an unbounded lead/unresolved count.
 export const MAX_OVERLAY_ENTRIES = 5_000;
+/** An evidence item with blank source AND detail is nothing — EvidenceItem's schema permits both
+ *  to be empty strings, so `evidence.length > 0` alone is not proof of grounding. Shared by
+ *  resolveOverlay() (build time) and parseBundle (load time) so the downgrade rule can't be
+ *  bypassed through either path by padding the array with blank records. */
+export function hasMeaningfulEvidence(evidence: ReadonlyArray<{ source: string; detail: string }>): boolean {
+  return evidence.some((e) => e.source.trim() !== "" || e.detail.trim() !== "");
+}
 export const LeadStatusSchema = z.enum(["hypothetical", "inferred", "observed", "verified", "refuted"]);
 export const ThreatLeadSchema = z.object({
   id: z.string(),
@@ -393,7 +400,7 @@ export function parseBundle(input: unknown): AtlasBundle {
       // made — e.g. the MCP server loads a bundle file directly via parseBundle, bypassing build()
       // entirely. parseBundle only ever throws (it never mutates), so an ungrounded claim is rejected
       // here rather than silently downgraded, same as a forged nodeId or a non-http(s) url above.
-      if ((l.status === "observed" || l.status === "verified") && l.evidence.length === 0)
+      if ((l.status === "observed" || l.status === "verified") && !hasMeaningfulEvidence(l.evidence))
         throw new Error(`Threat lead ${l.id} claims '${l.status}' with no evidence (must be downgraded to 'inferred')`);
     }
   }

@@ -60,6 +60,12 @@ try {
   const withEvidence = resolveOverlay(g, doc({ leads: [{ id: "V", attackClassId: "AAC-11", label: "x", target: "src/handler.js#render", status: "verified", note: "n", evidence: [{ source: "pentest", detail: "reproduced" }] }] }));
   assert.strictEqual(withEvidence.overlay.leads[0].status, "verified", "a lead WITH evidence keeps the reported status");
 
+  // an array of BLANK evidence records is not evidence: EvidenceItem permits empty strings, so
+  // `evidence.length > 0` alone must not be treated as grounding.
+  const blankEvidence = resolveOverlay(g, doc({ leads: [{ id: "BV", attackClassId: "AAC-11", label: "x", target: "src/handler.js#render", status: "verified", note: "n", evidence: [{ source: "", detail: "" }] }] }));
+  assert.strictEqual(blankEvidence.overlay.leads[0].status, "inferred", "an all-blank evidence array is treated as no evidence and still downgraded");
+  assert.ok(blankEvidence.warnings.some((w) => /BV/.test(w) && /no evidence/.test(w)), "the downgrade is reported even though evidence.length was 1");
+
   // untrusted input is rejected, not coerced
   assert.throws(() => resolveOverlay(g, doc({ schemaVersion: "2" })), "unknown contract version rejected");
   assert.throws(() => resolveOverlay(g, doc({ leads: [{ id: "X", attackClassId: "A", label: "l", target: "t", status: "hypothetical", note: "n", url: "javascript:alert(1)" }] })), "non-http(s) url rejected");
@@ -91,6 +97,10 @@ try {
   ungrounded.threatOverlay.leads[0].status = "verified";
   ungrounded.threatOverlay.leads[0].evidence = [];
   assert.throws(() => parseBundle(ungrounded), /claims 'verified' with no evidence/, "an ungrounded status cannot reach the MCP server via a hand-authored bundle");
+  const ungroundedBlank = JSON.parse(JSON.stringify(built.bundle));
+  ungroundedBlank.threatOverlay.leads[0].status = "verified";
+  ungroundedBlank.threatOverlay.leads[0].evidence = [{ source: "", detail: "" }];
+  assert.throws(() => parseBundle(ungroundedBlank), /claims 'verified' with no evidence/, "an all-blank evidence array doesn't satisfy parseBundle's check either");
 
   // --- a bad source never breaks the build; the reason is recorded, not swallowed --
   writeFileSync(join(root, "broken.json"), "{ not json");
@@ -227,6 +237,22 @@ try {
   const byPath: any = tools.threatLeads({ path: "handler.js" });
   assert.strictEqual(byPath.leads.length, 2, "both L1 and L2 resolve into src/handler.js");
   assert.strictEqual(new AtlasTools(plain).threatLeads().leads.length, 0, "no overlay => empty list, not an error");
+
+  // --- threatLeads() pagination: more matches than `limit` must actually be reachable ----------
+  const page1: any = manyLeadsTools.threatLeads({ limit: 10 });
+  assert.strictEqual(page1.leads.length, 10);
+  assert.strictEqual(page1.total, 30);
+  assert.strictEqual(page1.nextOffset, 10, "nextOffset says where the next page starts");
+  const page2: any = manyLeadsTools.threatLeads({ limit: 10, offset: page1.nextOffset });
+  assert.strictEqual(page2.leads.length, 10);
+  const page1Ids = new Set(page1.leads.map((l: any) => l.id));
+  const page2Ids = new Set(page2.leads.map((l: any) => l.id));
+  assert.strictEqual([...page1Ids].filter((id) => page2Ids.has(id)).length, 0, "consecutive pages don't overlap");
+  const page3: any = manyLeadsTools.threatLeads({ limit: 10, offset: page2.nextOffset });
+  assert.strictEqual(page3.leads.length, 10);
+  assert.strictEqual(page3.nextOffset, null, "the last page reports no further offset");
+  const allSeenIds = new Set([...page1Ids, ...page2Ids, ...page3.leads.map((l: any) => l.id)]);
+  assert.strictEqual(allSeenIds.size, 30, "paging with offset reaches every one of the 30 leads, not just the first page repeated");
 
   console.log("threat-overlay.test: exactly-one-match resolution, no upgrades, annotations only, bad sources non-fatal, leads are hypotheses to agents");
 } finally {

@@ -25,6 +25,7 @@ import { z } from "zod";
 import {
   LeadStatusSchema,
   MAX_OVERLAY_ENTRIES,
+  hasMeaningfulEvidence,
   type AtlasGraph,
   type AtlasNode,
   type ThreatLead,
@@ -111,7 +112,7 @@ export function resolveOverlay(graph: AtlasGraph, raw: unknown): ResolvedOverlay
       continue;
     }
     let status = l.status;
-    if ((status === "observed" || status === "verified") && l.evidence.length === 0) {
+    if ((status === "observed" || status === "verified") && !hasMeaningfulEvidence(l.evidence)) {
       warnings.push(`lead '${l.id}' claimed '${status}' with no evidence; shown as 'inferred'`);
       status = "inferred";
     }

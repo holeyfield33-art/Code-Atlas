@@ -30,14 +30,22 @@ assert.strictEqual(safeHref(""), null);
 assert.strictEqual(safeHref("https://example.test/a b"), "https://example.test/a%20b");
 
 const LEAD_LABEL = grab(/const LEAD_LABEL = \{[^\n]*\}/);
+const EVIDENCE_ROWS_SHOWN_SRC = grab(/const EVIDENCE_ROWS_SHOWN\s*=\s*\d+;/);
 const leadCardSrc = grab(/function leadCard\(l\)\{[\s\S]*?\n\}/);
-const leadCard = new Function("esc", "safeHref", LEAD_LABEL + ";" + leadCardSrc + "; return leadCard;")(esc, safeHref) as (l: any) => string;
+const leadCard = new Function("esc", "safeHref", LEAD_LABEL + ";" + EVIDENCE_ROWS_SHOWN_SRC + ";" + leadCardSrc + "; return leadCard;")(esc, safeHref) as (l: any) => string;
 const card = leadCard({ id: "L", attackClassId: "A<1>", label: "x", status: "hypothetical", confidence: "low", note: '<img src=x onerror="alert(1)">', url: "javascript:alert(1)", evidence: [] });
 assert.ok(!/<img/.test(card), "lead note is escaped");
 assert.ok(!/href=/.test(card), "an unsafe url yields no link");
 assert.match(card, /HYPOTHETICAL LEAD/);
 assert.match(card, /Still needs testing/, "an untested lead says what is missing");
 assert.doesNotMatch(leadCard({ id: "R", attackClassId: "A", label: "x", status: "refuted", confidence: "low", note: "n", evidence: [] }), /Still needs testing/, "a refuted lead is not asked to be tested");
+
+// a valid sub-5MB overlay can still put tens of thousands of evidence records on ONE lead — the
+// inspector must not map them all into <li>s synchronously (freeze risk), so this is bounded too.
+const manyEvidence = Array.from({ length: 5000 }, (_, i) => ({ source: "s" + i, detail: "d" + i }));
+const bigCard = leadCard({ id: "L2", attackClassId: "A", label: "x", status: "hypothetical", confidence: "low", note: "n", evidence: manyEvidence });
+assert.strictEqual((bigCard.match(/<li>/g) || []).length, 21, "evidence rows are capped (20 shown + 1 'more' row), not all 5000 rendered");
+assert.match(bigCard, /4980 more evidence/, "the omitted count is stated");
 
 const secSrc = grab(/function threatMapSection\(n\)\{[\s\S]*?\n\}/);
 const mk = (state: any) => new Function("state", "esc", "leadCard", "labelFor", secSrc + "; return threatMapSection;")(state, esc, leadCard, (id: string) => id) as (n: any) => string;
@@ -72,8 +80,23 @@ assert.ok(!pinnedIds({ ...leadState, mode: "security" }, noExplore).has("fn1"), 
 // unresolved panel) showing the PREVIOUS bundle's overlay until the user toggled something.
 const loadGraphSrc = grab(/function loadGraph\(raw[\s\S]*?\n\}/);
 const buildOverlayCall = loadGraphSrc.indexOf("buildOverlay(");
-const updateLegendCall = loadGraphSrc.indexOf("updateLegend()");
+const renderCall = loadGraphSrc.indexOf("render();");
+const updateLegendCall = loadGraphSrc.lastIndexOf("updateLegend()");
 assert.ok(buildOverlayCall !== -1 && updateLegendCall !== -1 && updateLegendCall > buildOverlayCall,
   "loadGraph calls updateLegend() after buildOverlay(), so the legend/unresolved panel never shows a stale overlay");
+assert.ok(renderCall !== -1 && updateLegendCall > renderCall,
+  "loadGraph's updateLegend() call comes AFTER render(): its Threat Map branch reads state.drawn (set by render()/fgData()) to list capped leads, and calling it any earlier would read the PREVIOUS graph's drawn set");
 
-console.log("viewer-threatmap.test: 4th mode wired, overlay cannot grade Security, text escaped, links http(s) only, honest empty states, legend refreshes on load");
+// capped leads must stay DISCOVERABLE: a lead the render cap (and its own PIN_OVERFLOW budget)
+// dropped needs a way to find it, or the earlier pin-overflow fix just reintroduces the original
+// "lead silently absent" bug it was meant to avoid.
+const cappedLeadIdsSrc = grab(/function cappedLeadIds\(\)\{[\s\S]*?\n\}/);
+const cappedLeadIds = (state: any) => new Function("state", cappedLeadIdsSrc + "; return cappedLeadIds;")(state)();
+const drawnState = {
+  leadsByNode: new Map([["drawn-fn", [{}]], ["hidden-fn", [{}]], ["stand-in-fn", [{}]]]),
+  leadFileOf: new Map([["drawn-fn", "f1"], ["hidden-fn", "f2"], ["stand-in-fn", "f3"]]),
+  drawn: new Set(["drawn-fn", "f3"]),   // drawn-fn is drawn directly; stand-in-fn's FILE (f3) is drawn instead; hidden-fn is neither
+};
+assert.deepStrictEqual(cappedLeadIds(drawnState), ["hidden-fn"], "only a lead whose node AND containing file are both undrawn counts as capped");
+
+console.log("viewer-threatmap.test: 4th mode wired, overlay cannot grade Security, text escaped, links http(s) only, honest empty states, legend refreshes on load, capped leads stay discoverable");

@@ -237,25 +237,33 @@ export class AtlasTools {
    *  e.g. "review all overlay leads". Compact rows with node references; filter by attack class,
    *  status, confidence, or a path fragment. Unresolved leads stay out of this list (overview()
    *  already summarizes those, bounded) since they have no node to reference. Read-only. */
-  threatLeads(filter: { attackClassId?: string; status?: string; confidence?: string; path?: string; limit?: number } = {}) {
+  threatLeads(filter: { attackClassId?: string; status?: string; confidence?: string; path?: string; limit?: number; offset?: number } = {}) {
     const limit = Math.min(Math.max(Math.floor(Number(filter.limit) || 200), 1), 1000);
-    const rows: any[] = []; let total = 0;
+    // `offset` pages through matches beyond `limit` — without it, more matches than `limit` (the
+    // overlay document cap is 5,000, well past limit's 1,000 ceiling) could never be enumerated;
+    // every call would return the same leading page forever.
+    const offset = Math.max(Math.floor(Number(filter.offset) || 0), 0);
+    const rows: any[] = []; let matched = 0;
     for (const l of this.bundle.threatOverlay?.leads ?? []) {
       const node = this.byId.get(l.nodeId);
       if (filter.attackClassId && l.attackClassId !== filter.attackClassId) continue;
       if (filter.status && l.status !== filter.status) continue;
       if (filter.confidence && l.confidence !== filter.confidence) continue;
       if (filter.path && !(node?.evidence.path ?? "").includes(filter.path)) continue;
-      total++;
-      if (rows.length < limit) {
-        const bounded = boundLeadText(l);
-        rows.push({
-          id: l.id, attackClassId: l.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
-          note: bounded.note, rule: l.rule ?? null, url: bounded.url ?? null, node: node ? this.brief(l.nodeId) : { id: l.nodeId },
-        });
-      }
+      const i = matched++;
+      if (i < offset || rows.length >= limit) continue;
+      const bounded = boundLeadText(l);
+      rows.push({
+        id: l.id, attackClassId: l.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
+        note: bounded.note, rule: l.rule ?? null, url: bounded.url ?? null, node: node ? this.brief(l.nodeId) : { id: l.nodeId },
+      });
     }
-    return { total, returned: rows.length, leads: rows, note: "Leads are hypotheses from an external overlay, never findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Use atlas_threats(id) for a node's leads plus its real findings together." };
+    const nextOffset = offset + rows.length < matched ? offset + rows.length : null;
+    return {
+      total: matched, returned: rows.length, offset, nextOffset, leads: rows,
+      note: "Leads are hypotheses from an external overlay, never findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Use atlas_threats(id) for a node's leads plus its real findings together." +
+        (nextOffset !== null ? ` More match than fit in this page; call again with offset=${nextOffset} for the rest.` : ""),
+    };
   }
 
   /** List findings without knowing a node id or path first (threats() needs one). Compact rows;

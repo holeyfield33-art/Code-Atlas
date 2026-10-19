@@ -10,13 +10,18 @@ function element(id: string) {
   if (!elements.has(id)) elements.set(id, {
     hidden: false, textContent: "", innerHTML: "", title: "", style: {}, classList: { remove() {}, add() {}, toggle() { return false; } },
     setAttribute() {}, getAttribute() { return null; }, addEventListener() {}, querySelectorAll: () => [],
+    // real getElementById returns null for an element never created (e.g. "tmPanel", only ever
+    // created on demand via createElement) — this stub auto-vivifies instead for convenience, so
+    // it needs remove()/parentNode too, now that loadGraph's fix to call updateLegend() exercises
+    // that path (`document.getElementById("tmPanel")?.remove()`) on every load, not just a mode switch.
+    remove() {}, parentNode: { appendChild() {} },
   });
   return elements.get(id);
 }
 let renderedNodes = 0;
 const fg: any = { graphData(d: any) { renderedNodes = d.nodes.length; return fg; }, nodeColor() { return fg; }, linkColor() { return fg; } };
 const context = vm.createContext({
-  document: { getElementById: element },
+  document: { getElementById: element, createElement: () => ({ innerHTML: "", querySelectorAll: () => [] }) },
   window: { matchMedia: () => ({ matches: false }), addEventListener() {} },
   setTimeout() {}, console,
 });
