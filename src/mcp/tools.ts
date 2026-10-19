@@ -37,12 +37,17 @@ function boundUnresolvedEntry<T extends { id: string; attackClassId: string; des
   };
 }
 
-/** Bound a resolved lead's free-text fields (label, note, url, each evidence item) before it's
- *  surfaced by threats()/threatLeads() — the row count being bounded does not bound any ONE row,
- *  and the evidence array's own length is unbounded on the schema, so it is capped here too. */
-function boundLeadText(l: ThreatLead): Pick<ThreatLead, "label" | "note" | "url" | "evidence"> & { evidenceTotal: number } {
+/** Bound a resolved lead's free-text fields (id, attackClassId, label, note, rule, url, each
+ *  evidence item) before it's surfaced by threats()/threatLeads() — the row count being bounded
+ *  does not bound any ONE row, and the evidence array's own length is unbounded on the schema, so
+ *  it is capped here too. Fresh evidence after the first field-cap round: id/attackClassId/rule
+ *  were still passed through the call sites verbatim, so an overlay could still put its 5MB
+ *  allowance into any of those three instead. */
+function boundLeadText(l: ThreatLead): Pick<ThreatLead, "id" | "attackClassId" | "label" | "note" | "rule" | "url" | "evidence"> & { evidenceTotal: number } {
   return {
-    label: capText(l.label), note: capText(l.note), url: l.url !== undefined ? capText(l.url) : undefined,
+    id: capText(l.id), attackClassId: capText(l.attackClassId),
+    label: capText(l.label), note: capText(l.note), rule: l.rule !== undefined ? capText(l.rule) : undefined,
+    url: l.url !== undefined ? capText(l.url) : undefined,
     evidence: l.evidence.slice(0, EVIDENCE_CAP).map((e) => ({ source: capText(e.source), detail: capText(e.detail) })),
     evidenceTotal: l.evidence.length,
   };
@@ -162,7 +167,7 @@ export class AtlasTools {
         : null,   // external leads (e.g. ASI); null when none attached. Leads are hypotheses, never findings. Use atlas.threatLeads() to enumerate resolved leads without knowing a node id first.
       coverage: this.bundle.coverage ?? null,   // what the scan omitted, counted by reason (null on older bundles)
       entryPoints,
-      note: "Every edge is source-backed; unresolved relationships are diagnostics, never fabricated. `coverage` reports what the scan omitted (unsupported / too large / over the file cap), so absence of a node is not absence from the repo. Use atlas_get_source to read code only when needed.",
+      note: "Every edge is source-backed; unresolved relationships are diagnostics, never fabricated. `coverage` reports what the scan omitted (unsupported / too large / over the file cap), so absence of a node is not absence from the repo. Use atlas_get_source to read code only when needed. threatOverlay.unresolved here is capped at 50 for a cheap first look; use atlas.unresolvedLeads({limit?, offset?}) to page through every entry.",
     };
   }
 
@@ -251,8 +256,8 @@ export class AtlasTools {
     const allLeads = ids.flatMap((id) => (this.leadsByNode.get(id) ?? []).map((l) => {
       const bounded = boundLeadText(l);
       return {
-        id: l.id, attackClassId: l.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
-        note: bounded.note, rule: l.rule ?? null, url: bounded.url ?? null, evidence: bounded.evidence, evidenceTotal: bounded.evidenceTotal, node: this.brief(id),
+        id: bounded.id, attackClassId: bounded.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
+        note: bounded.note, rule: bounded.rule ?? null, url: bounded.url ?? null, evidence: bounded.evidence, evidenceTotal: bounded.evidenceTotal, node: this.brief(id),
       };
     }));
     const findingsTotal = found.length, leadsTotal = allLeads.length;
@@ -284,8 +289,8 @@ export class AtlasTools {
       if (i < offset || rows.length >= limit) continue;
       const bounded = boundLeadText(l);
       rows.push({
-        id: l.id, attackClassId: l.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
-        note: bounded.note, rule: l.rule ?? null, url: bounded.url ?? null, node: node ? this.brief(l.nodeId) : { id: l.nodeId },
+        id: bounded.id, attackClassId: bounded.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
+        note: bounded.note, rule: bounded.rule ?? null, url: bounded.url ?? null, node: node ? this.brief(l.nodeId) : { id: l.nodeId },
       });
     }
     const nextOffset = offset + rows.length < matched ? offset + rows.length : null;
@@ -293,6 +298,23 @@ export class AtlasTools {
       total: matched, returned: rows.length, offset, nextOffset, leads: rows,
       note: "Leads are hypotheses from an external overlay, never findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Use atlas_threats(id) for a node's leads plus its real findings together." +
         (nextOffset !== null ? ` More match than fit in this page; call again with offset=${nextOffset} for the rest.` : ""),
+    };
+  }
+
+  /** List UNRESOLVED overlay entries, paginated — overview()'s summary hard-stops at 50 so the
+   *  recommended first call stays cheap, but an overlay can carry up to 5,000; threatLeads() also
+   *  excludes unresolved entries outright (they have no node to reference). Without this, anything
+   *  past the first 50 was unreachable through either the agent API or the viewer. Read-only. */
+  unresolvedLeads(filter: { limit?: number; offset?: number } = {}) {
+    const limit = Math.min(Math.max(Math.floor(Number(filter.limit) || 50), 1), 1000);
+    const offset = Math.max(Math.floor(Number(filter.offset) || 0), 0);
+    const all = this.bundle.threatOverlay?.unresolved ?? [];
+    const rows = all.slice(offset, offset + limit).map(boundUnresolvedEntry);
+    const nextOffset = offset + rows.length < all.length ? offset + rows.length : null;
+    return {
+      total: all.length, returned: rows.length, offset, nextOffset, unresolved: rows,
+      note: "These could not be matched to exactly one component of this graph — unknown, not cleared." +
+        (nextOffset !== null ? ` More entries than fit in this page; call again with offset=${nextOffset} for the rest.` : ""),
     };
   }
 

@@ -127,6 +127,15 @@ export function buildServer(ctx: AtlasCtx, opts: BuildServerOptions = {}): McpSe
     },
     async (filter) => ok(ctx.tools.threatLeads(filter)));
 
+  server.registerTool("atlas_unresolved_leads",
+    {
+      title: "List unresolved overlay entries",
+      description: "External-overlay entries that could not be matched to exactly one component — unknown, not cleared. atlas_overview's threatOverlay.unresolved is capped at 50 for a cheap first look; this pages through all of them. Pass the response's nextOffset back as `offset` to continue.",
+      inputSchema: { limit: z.number().int().min(1).max(1000).optional(), offset: z.number().int().min(0).optional() },
+      annotations: RO,
+    },
+    async (filter) => ok(ctx.tools.unresolvedLeads(filter)));
+
   server.registerTool("atlas_course",
     { title: "Lesson for a component", description: "The grounded lesson + Break & Fix attached to a node, if any.", inputSchema: { id: z.string() }, annotations: RO },
     async ({ id }) => ok(ctx.tools.course(id)));
@@ -155,7 +164,7 @@ export function buildServer(ctx: AtlasCtx, opts: BuildServerOptions = {}): McpSe
       title: "Run a read-only query against the atlas",
       description:
         "ONE programmable read tool. Write JavaScript that calls a frozen, read-only `atlas` API and `return`s a value — filter, join, aggregate, or traverse in a single call instead of chaining fixed tools. " +
-        "Available (all read-only): atlas.overview(), atlas.search(query, limit?), atlas.getNode(id), atlas.getSource(id), atlas.neighbors(id, kinds?), atlas.contextPack(task, budgetTokens?), atlas.threats(ref), atlas.findings({kind?, grade?, rule?, path?, triaged?, limit?}) (list findings without knowing an id), atlas.threatLeads({attackClassId?, status?, confidence?, path?, limit?, offset?}) (list resolved overlay leads without knowing an id; page with offset=nextOffset),atlas.routes({method?, path?, file?, limit?}) (HTTP routes found in JS/TS code, with their handlers and leads), atlas.course(id). " +
+        "Available (all read-only): atlas.overview(), atlas.search(query, limit?), atlas.getNode(id), atlas.getSource(id), atlas.neighbors(id, kinds?), atlas.contextPack(task, budgetTokens?), atlas.threats(ref), atlas.findings({kind?, grade?, rule?, path?, triaged?, limit?}) (list findings without knowing an id), atlas.threatLeads({attackClassId?, status?, confidence?, path?, limit?, offset?}) (list resolved overlay leads without knowing an id; page with offset=nextOffset), atlas.unresolvedLeads({limit?, offset?}) (page through EVERY unresolved overlay entry; atlas.overview()'s copy is capped at 50), atlas.routes({method?, path?, file?, limit?}) (HTTP routes found in JS/TS code, with their handlers and leads), atlas.course(id). " +
         "The code runs in an isolate with NO network, filesystem, require, import, process, or timers — only `atlas`. There is no way to write or mutate the bundle from here. A wall-clock timeout and memory cap bound every run, and the response carries a replayable receipt (sha256 of code + bundle). " +
         "Example: `const o = atlas.overview(); return o.entryPoints.map(e => ({ id: e.id, threats: atlas.threats(e.id).findings.length }));`",
       inputSchema: {

@@ -28,6 +28,11 @@ assert.strictEqual(safeHref("javascript:alert(1)"), null, "javascript: links are
 assert.strictEqual(safeHref("data:text/html,x"), null, "data: links are refused");
 assert.strictEqual(safeHref(""), null);
 assert.strictEqual(safeHref("https://example.test/a b"), "https://example.test/a%20b");
+// A lead's url is untrusted overlay text and can contain an unpaired UTF-16 surrogate (a valid JS
+// string, since JS strings are UTF-16 code units, not valid UTF-8/16 text) — encodeURI() THROWS on
+// one (URIError: URI malformed). The scheme check alone passes first, so without a try/catch this
+// crashes whatever calls safeHref() instead of just refusing the one bad link.
+assert.strictEqual(safeHref("https://example.test/\ud800"), null, "an unpaired surrogate in an otherwise valid https url is refused, not thrown");
 
 const LEAD_LABEL = grab(/const LEAD_LABEL = \{[^\n]*\}/);
 const EVIDENCE_ROWS_SHOWN_SRC = grab(/const EVIDENCE_ROWS_SHOWN\s*=\s*\d+;/);

@@ -62,7 +62,7 @@ assert.deepStrictEqual(rr.result, tools.routes({ limit: 5 }), "sandbox routes() 
 // calling the natural no-filter form from inside the sandbox must hit that default, not throw.
 // (JSON.stringify([undefined]) -> "[null]"; the host's JSON.parse then hands the method a literal
 // null, which bypasses its JS default parameter — the wrapper must default the argument first.)
-for (const [name, direct] of [["findings", tools.findings()], ["threatLeads", tools.threatLeads()], ["routes", tools.routes()]] as const) {
+for (const [name, direct] of [["findings", tools.findings()], ["threatLeads", tools.threatLeads()], ["unresolvedLeads", tools.unresolvedLeads()], ["routes", tools.routes()]] as const) {
   const r = run(`return atlas.${name}();`);
   assert.strictEqual(r.ok, true, `atlas.${name}() with no argument runs in the sandbox, not { ok:false }`);
   assert.deepStrictEqual(r.result, direct, `atlas.${name}() with no argument matches the direct no-filter call`);

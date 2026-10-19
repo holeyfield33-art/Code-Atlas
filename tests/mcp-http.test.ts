@@ -140,9 +140,9 @@ await withServer({}, async (url) => {
 });
 await withServer({ allowUrlKey: true }, async (url) => {
   const ok = async (u: string) => { const r = await fetch(u, { method: "POST", headers: noAuthHeaders, body: listBody }); return r.status === 200 ? ((await r.json()) as any).result.tools.length : r.status; };
-  assert.strictEqual(await ok(`${url}/mcp?key=${apiKey}`), 10, "?key= authenticates");
-  assert.strictEqual(await ok(`${url}/mcp/${apiKey}`), 10, "/mcp/<key> authenticates");
-  assert.strictEqual(await ok(`${url}/mcp/${apiKey}/`), 10, "a trailing slash is tolerated");
+  assert.strictEqual(await ok(`${url}/mcp?key=${apiKey}`), 11, "?key= authenticates");
+  assert.strictEqual(await ok(`${url}/mcp/${apiKey}`), 11, "/mcp/<key> authenticates");
+  assert.strictEqual(await ok(`${url}/mcp/${apiKey}/`), 11, "a trailing slash is tolerated");
   assert.strictEqual(await ok(`${url}/mcp?key=${"x".repeat(32)}`), 401, "a wrong URL key is rejected");
   assert.strictEqual(await ok(`${url}/mcp`), 401, "no key anywhere is rejected");
   assert.strictEqual(await ok(`${url}/mcp?key=`), 401, "an empty key is rejected");

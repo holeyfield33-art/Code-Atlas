@@ -250,6 +250,55 @@ try {
   const hugeListLead = (hugeTools.threatLeads() as any).leads.find((l: any) => l.id === "L-HUGE");
   assert.ok(hugeListLead.label.length < 1000 && hugeListLead.note.length < 1000, "threatLeads() bounds a lead's label/note the same way");
 
+  // --- id/attackClassId/rule are just as overlay-controlled as label/note/url, and were passed
+  // through threats()/threatLeads() verbatim (the earlier fix only ran label/note/url/evidence
+  // through boundLeadText — not these three). Find the lead by TARGET, since id itself is now capped. ---
+  const hugeIdRuleDoc = doc({ leads: [{
+    id: "I".repeat(1_000_000), attackClassId: "C".repeat(1_000_000), label: "x",
+    target: "src/handler.js#handlePrompt", status: "hypothetical", note: "n", rule: "R".repeat(1_000_000),
+  }] });
+  const hugeIdRuleFile = join(root, "huge-id-rule-overlay.json");
+  writeFileSync(hugeIdRuleFile, JSON.stringify(hugeIdRuleDoc));
+  const builtHugeIdRule = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: hugeIdRuleFile });
+  const hugeIdRuleThreatsLead = (new AtlasTools(builtHugeIdRule.bundle).threats(fn.id) as any).leads[0];
+  assert.ok(hugeIdRuleThreatsLead.id.length < 1000, "threats() bounds a lead's id");
+  assert.ok(hugeIdRuleThreatsLead.attackClassId.length < 1000, "threats() bounds a lead's attackClassId");
+  assert.ok(hugeIdRuleThreatsLead.rule.length < 1000, "threats() bounds a lead's rule");
+  const hugeIdRuleListLead = (new AtlasTools(builtHugeIdRule.bundle).threatLeads() as any).leads[0];
+  assert.ok(hugeIdRuleListLead.id.length < 1000, "threatLeads() bounds a lead's id the same way");
+  assert.ok(hugeIdRuleListLead.attackClassId.length < 1000, "threatLeads() bounds a lead's attackClassId the same way");
+  assert.ok(hugeIdRuleListLead.rule.length < 1000, "threatLeads() bounds a lead's rule the same way");
+
+  // --- unresolvedLeads(): everything past overview()'s 50-row summary must still be reachable ----
+  // (threatLeads() explicitly excludes unresolved entries since they have no node; the viewer's
+  // own panel is bounded too — this is the only paginated path to the full unresolved list)
+  // leads: [] so the default doc()'s own unresolvable L3 target doesn't add a 121st entry on top
+  const manyUnresolvedDoc = doc({
+    leads: [],
+    unresolved: Array.from({ length: 120 }, (_, i) => ({ id: `UX${i}`, attackClassId: "AAC-29", description: `entry ${i}` })),
+  });
+  const manyUnresolvedFile = join(root, "many-unresolved-overlay.json");
+  writeFileSync(manyUnresolvedFile, JSON.stringify(manyUnresolvedDoc));
+  const builtManyUnresolved = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: manyUnresolvedFile });
+  const unresolvedTools = new AtlasTools(builtManyUnresolved.bundle);
+  const ovManyUnresolved: any = unresolvedTools.overview();
+  assert.strictEqual(ovManyUnresolved.threatOverlay.unresolved.length, 50, "overview()'s summary stays capped at 50 even with 120 entries");
+  assert.strictEqual(ovManyUnresolved.threatOverlay.unresolvedTotal, 120, "but the true total is still reported");
+  const unresPage1: any = unresolvedTools.unresolvedLeads({ limit: 50 });
+  assert.strictEqual(unresPage1.unresolved.length, 50);
+  assert.strictEqual(unresPage1.total, 120);
+  assert.strictEqual(unresPage1.nextOffset, 50, "nextOffset says where the next page starts");
+  const unresPage2: any = unresolvedTools.unresolvedLeads({ limit: 50, offset: unresPage1.nextOffset });
+  assert.strictEqual(unresPage2.unresolved.length, 50);
+  const unresPage3: any = unresolvedTools.unresolvedLeads({ limit: 50, offset: unresPage2.nextOffset });
+  assert.strictEqual(unresPage3.unresolved.length, 20, "the last page holds the remainder (120 - 100)");
+  assert.strictEqual(unresPage3.nextOffset, null, "the last page reports no further offset");
+  const allUnresolvedIds = new Set([
+    ...unresPage1.unresolved.map((u: any) => u.id), ...unresPage2.unresolved.map((u: any) => u.id), ...unresPage3.unresolved.map((u: any) => u.id),
+  ]);
+  assert.strictEqual(allUnresolvedIds.size, 120, "paging with offset reaches every one of the 120 entries, past overview()'s 50-row cap");
+  assert.strictEqual(new AtlasTools(plain).unresolvedLeads().unresolved.length, 0, "no overlay => empty list, not an error");
+
   // --- threats() must also bound the NUMBER of evidence rows one lead carries, not just each row's
   // text. The 5,000-entry overlay cap bounds how many LEADS a bundle holds, not how many evidence
   // records a SINGLE lead's array has — one lead could put its whole document allowance there. -----
