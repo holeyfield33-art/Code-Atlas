@@ -160,6 +160,28 @@ try {
   assert.notStrictEqual(new AtlasTools(plain).bundleHash, tools.bundleHash, "attaching an overlay changes the bundle identity used by receipts");
   assert.strictEqual((new AtlasTools(plain).overview() as any).threatOverlay, null, "no overlay => null, not an empty claim");
 
+  // --- overview()'s unresolved summary caps each TEXT FIELD, not just the array length -----
+  // (slicing the array to 50 entries still lets one oversized `description` through in full)
+  const hugeDescDoc = doc({ unresolved: [{ id: "U-HUGE", attackClassId: "AAC-29", description: "x".repeat(2_000_000), target: "y".repeat(2_000_000) }] });
+  const hugeOverlayFile = join(root, "huge-overlay.json");
+  writeFileSync(hugeOverlayFile, JSON.stringify(hugeDescDoc));
+  const builtHuge = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: hugeOverlayFile });
+  const ovHuge: any = new AtlasTools(builtHuge.bundle).overview();
+  const hugeEntry = ovHuge.threatOverlay.unresolved.find((u: any) => u.id === "U-HUGE");
+  assert.ok(hugeEntry.description.length < 1000, "a near-5MB description is bounded in the overview summary, not returned whole");
+  assert.ok(hugeEntry.target.length < 1000, "the target field is bounded too");
+
+  // --- atlas.threatLeads(): resolved leads are enumerable without knowing a node id first ---
+  const allLeads: any = tools.threatLeads();
+  assert.strictEqual(allLeads.leads.length, 2, "both resolved leads are listed with no ref needed");
+  assert.ok(allLeads.leads.every((l: any) => l.node && l.node.id), "each row carries a node reference");
+  const byClass: any = tools.threatLeads({ attackClassId: "AAC-11" });
+  assert.strictEqual(byClass.leads.length, 1);
+  assert.strictEqual(byClass.leads[0].id, "L2");
+  const byPath: any = tools.threatLeads({ path: "handler.js" });
+  assert.strictEqual(byPath.leads.length, 2, "both L1 and L2 resolve into src/handler.js");
+  assert.strictEqual(new AtlasTools(plain).threatLeads().leads.length, 0, "no overlay => empty list, not an error");
+
   console.log("threat-overlay.test: exactly-one-match resolution, no upgrades, annotations only, bad sources non-fatal, leads are hypotheses to agents");
 } finally {
   rmSync(root, { recursive: true, force: true });

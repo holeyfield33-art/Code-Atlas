@@ -12,6 +12,15 @@ import { castsBlastAfterTriage } from "../triage.js";
 
 const sha = (s: string) => "sha256:" + createHash("sha256").update(s).digest("hex").slice(0, 16);
 
+const UNRESOLVED_FIELD_CAP = 200;
+/** Cap each unresolved lead's free-text fields (an untrusted overlay can carry a `description`
+ *  anywhere up to the 5 MB document limit) before slicing to a page — slicing the ARRAY alone
+ *  still lets one oversized field through in full. `cappedAt` tells a caller it was cut. */
+function boundUnresolvedEntry<T extends { description: string; target?: string }>(u: T): T {
+  const cap = (s: string) => (s.length > UNRESOLVED_FIELD_CAP ? s.slice(0, UNRESOLVED_FIELD_CAP) + "…" : s);
+  return { ...u, description: cap(u.description), ...(u.target !== undefined ? { target: cap(u.target) } : {}) };
+}
+
 /** Deterministic hash of ALL state a read tool can surface — not the (optional,
  *  generation-time, and after triage stale) `integrity` field. Receipts (context
  *  pack, atlas_exec) must change whenever any read could change: different sources,
@@ -110,8 +119,12 @@ export class AtlasTools {
       findingsByGrade: tally(findings.map((f) => f.grade)),
       findingsByDisposition: tally(findings.map((f) => f.disposition?.status ?? "untriaged")),
       threatOverlay: this.bundle.threatOverlay
-        ? { source: this.bundle.threatOverlay.source, leads: this.bundle.threatOverlay.leads.length, unresolved: this.bundle.threatOverlay.unresolved.slice(0, 50), unresolvedTotal: this.bundle.threatOverlay.unresolved.length }
-        : null,   // external leads (e.g. ASI); null when none attached. Leads are hypotheses, never findings.
+        ? {
+            source: this.bundle.threatOverlay.source, leads: this.bundle.threatOverlay.leads.length,
+            unresolved: this.bundle.threatOverlay.unresolved.slice(0, 50).map(boundUnresolvedEntry),
+            unresolvedTotal: this.bundle.threatOverlay.unresolved.length,
+          }
+        : null,   // external leads (e.g. ASI); null when none attached. Leads are hypotheses, never findings. Use atlas.threatLeads() to enumerate resolved leads without knowing a node id first.
       coverage: this.bundle.coverage ?? null,   // what the scan omitted, counted by reason (null on older bundles)
       entryPoints,
       note: "Every edge is source-backed; unresolved relationships are diagnostics, never fabricated. `coverage` reports what the scan omitted (unsupported / too large / over the file cap), so absence of a node is not absence from the repo. Use atlas_get_source to read code only when needed.",
@@ -195,6 +208,28 @@ export class AtlasTools {
       note: l.note, rule: l.rule ?? null, url: l.url ?? null, evidence: l.evidence, node: this.brief(id),
     })));
     return { ref, findings: found, leads, note: "Leads come from an external overlay and are hypotheses to investigate, not findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Grade reflects how this was verified; a dependency link alone does not establish exploitability. A disposition is a human/agent triage decision and never upgrades the grade." };
+  }
+
+  /** List RESOLVED overlay leads without knowing a node id or path first (threats() needs one) —
+   *  e.g. "review all overlay leads". Compact rows with node references; filter by attack class,
+   *  status, confidence, or a path fragment. Unresolved leads stay out of this list (overview()
+   *  already summarizes those, bounded) since they have no node to reference. Read-only. */
+  threatLeads(filter: { attackClassId?: string; status?: string; confidence?: string; path?: string; limit?: number } = {}) {
+    const limit = Math.min(Math.max(Math.floor(Number(filter.limit) || 200), 1), 1000);
+    const rows: any[] = []; let total = 0;
+    for (const l of this.bundle.threatOverlay?.leads ?? []) {
+      const node = this.byId.get(l.nodeId);
+      if (filter.attackClassId && l.attackClassId !== filter.attackClassId) continue;
+      if (filter.status && l.status !== filter.status) continue;
+      if (filter.confidence && l.confidence !== filter.confidence) continue;
+      if (filter.path && !(node?.evidence.path ?? "").includes(filter.path)) continue;
+      total++;
+      if (rows.length < limit) rows.push({
+        id: l.id, attackClassId: l.attackClassId, label: l.label, status: l.status, confidence: l.confidence,
+        note: l.note, rule: l.rule ?? null, url: l.url ?? null, node: node ? this.brief(l.nodeId) : { id: l.nodeId },
+      });
+    }
+    return { total, returned: rows.length, leads: rows, note: "Leads are hypotheses from an external overlay, never findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Use atlas_threats(id) for a node's leads plus its real findings together." };
   }
 
   /** List findings without knowing a node id or path first (threats() needs one). Compact rows;

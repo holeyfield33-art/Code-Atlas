@@ -1294,6 +1294,7 @@ function loadGraph(raw, {sample=false}={}){
   state.truncatedSources = new Set(((norm.sources)||[]).filter(s=>s.truncated).map(s=>s.path));
   buildFindings(norm.findings);
   buildOverlay(norm.overlay);
+  updateLegend();   // a bundle loaded while already in Threat Map mode must not leave the legend/unresolved panel showing the PREVIOUS bundle's overlay
   loadDone();
   state.exploreProject = sample ? "sample" : (norm.label || norm.revision || "g");
   state.nodeObjs = null; state.drawn = new Set();

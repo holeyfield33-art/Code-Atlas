@@ -56,4 +56,13 @@ assert.ok(!leadOn({ ...base, detail: "full" })("file"), "in the full view the fi
 assert.ok(!leadOn({ ...base, detail: "files", expanded: new Set(["file"]) })("file"), "an expanded file no longer stands in for its functions");
 assert.ok(leadOn({ ...base, detail: "files" })("fn"), "the function itself is marked");
 
-console.log("viewer-threatmap.test: 4th mode wired, overlay cannot grade Security, text escaped, links http(s) only, honest empty states");
+// loadGraph must refresh the legend itself: if it only relied on applyMode/the unresolved-chip
+// handler, a bundle loaded while already in Threat Map mode would leave the legend (and an open
+// unresolved panel) showing the PREVIOUS bundle's overlay until the user toggled something.
+const loadGraphSrc = grab(/function loadGraph\(raw[\s\S]*?\n\}/);
+const buildOverlayCall = loadGraphSrc.indexOf("buildOverlay(");
+const updateLegendCall = loadGraphSrc.indexOf("updateLegend()");
+assert.ok(buildOverlayCall !== -1 && updateLegendCall !== -1 && updateLegendCall > buildOverlayCall,
+  "loadGraph calls updateLegend() after buildOverlay(), so the legend/unresolved panel never shows a stale overlay");
+
+console.log("viewer-threatmap.test: 4th mode wired, overlay cannot grade Security, text escaped, links http(s) only, honest empty states, legend refreshes on load");
