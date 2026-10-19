@@ -178,8 +178,18 @@ export class AtlasTools {
           }
         : null,   // external leads (e.g. ASI); null when none attached. Leads are hypotheses, never findings. Use atlas.threatLeads() to enumerate resolved leads without knowing a node id first.
       coverage: this.bundle.coverage ?? null,   // what the scan omitted, counted by reason (null on older bundles)
+      // build.ts records an overlay attach failure (or an unresolved-entry truncation) as a
+      // "threat-overlay"-stage bundle diagnostic — bundle-level, not graph-level, so it was never
+      // actually surfaced here despite the comment at that call site claiming otherwise: a malformed
+      // or unreachable overlay source left `threatOverlay: null` with no sign of WHY it's missing,
+      // visible only in a one-time CLI warning that's gone by the time anyone opens the saved
+      // bundle. Capped in count and per-message length like every other untrusted-adjacent field,
+      // since `message` can echo text from the overlay source (e.g. a parse error).
+      overlayDiagnostics: (this.bundle.diagnostics ?? [])
+        .filter((d) => d.stage === "threat-overlay").slice(0, 20)
+        .map((d) => ({ stage: d.stage, message: capText(d.message) })),
       entryPoints,
-      note: "Every edge is source-backed; unresolved relationships are diagnostics, never fabricated. `coverage` reports what the scan omitted (unsupported / too large / over the file cap), so absence of a node is not absence from the repo. Use atlas_get_source to read code only when needed. threatOverlay.unresolved here is capped at 50 for a cheap first look; use atlas.unresolvedLeads({limit?, offset?}) to page through every entry.",
+      note: "Every edge is source-backed; unresolved relationships are diagnostics, never fabricated. `coverage` reports what the scan omitted (unsupported / too large / over the file cap), so absence of a node is not absence from the repo. Use atlas_get_source to read code only when needed. threatOverlay.unresolved here is capped at 50 for a cheap first look; use atlas.unresolvedLeads({limit?, offset?}) to page through every entry. `overlayDiagnostics` says why threatOverlay is null (a bad/unreachable source) when it is.",
     };
   }
 

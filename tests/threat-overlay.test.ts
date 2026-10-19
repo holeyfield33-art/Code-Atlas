@@ -119,6 +119,15 @@ try {
   assert.ok(broken.overlay?.error, "error text is reported");
   assert.strictEqual(broken.bundle.threatOverlay, undefined, "nothing half-attached");
   assert.ok(broken.bundle.diagnostics.some((d) => d.stage === "threat-overlay"), "failure is recorded in the bundle diagnostics");
+  // That bundle-level diagnostic must actually be reachable through a consumer, not just present
+  // on the object — overview() didn't read bundle.diagnostics at all before this fix, so a loaded
+  // bundle's threatOverlay being null gave no sign of why (the CLI's one-time warning is long gone
+  // by the time anyone opens the saved bundle via MCP or the viewer).
+  const brokenOverview: any = new AtlasTools(broken.bundle).overview();
+  assert.strictEqual(brokenOverview.threatOverlay, null, "no overlay attached");
+  assert.ok(brokenOverview.overlayDiagnostics.some((d: any) => d.stage === "threat-overlay" && /overlay not attached/.test(d.message)), "overview() surfaces WHY the overlay is missing");
+  // sanity: a bundle with no overlay attempt at all reports an empty list, not a stale leftover
+  assert.deepStrictEqual((new AtlasTools(built.bundle).overview() as any).overlayDiagnostics, [], "no threat-overlay diagnostics when nothing went wrong");
   const missing = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: join(root, "absent.json") });
   assert.strictEqual(missing.overlay?.attached, false, "a missing file is reported, not fatal");
 

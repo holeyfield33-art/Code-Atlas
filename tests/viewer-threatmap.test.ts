@@ -279,6 +279,11 @@ assert.match(mobileCss, /\.inspector\{width:100vw\}/, "the mobile evidence inspe
 const updateLegendSrc = grab(/function updateLegend\(\)\{[\s\S]*?\n\}/);
 assert.match(updateLegendSrc, /classList\.remove\("has-controls"\)/, "updateLegend resets the class before deciding whether to re-add it");
 assert.match(updateLegendSrc, /if\(btn \|\| cappedBtn\) el\.classList\.add\("has-controls"\)/, "updateLegend adds has-controls only when it actually put a button in the legend");
+// When no overlay is attached, the legend must say WHY by reading the bundle-level
+// "threat-overlay"-stage diagnostic build.ts records for a failed/unreachable source — otherwise
+// the one-time CLI warning at build time is the only place that reason ever appeared.
+assert.match(updateLegendSrc, /state\.bundle\.diagnostics\.find\(d=>d && d\.stage==="threat-overlay"\)/, "updateLegend looks for a threat-overlay build diagnostic when no overlay is attached");
+assert.match(updateLegendSrc, /no threat overlay attached<\/b>\$\{overlayDiag/, "the no-overlay legend message includes that diagnostic when present");
 
 // Toggling Files<->Full detail re-renders (changing state.drawn) and also changes what
 // cappedLeadIds()/leadOn() consider a valid file stand-in (see the fix above) — the legend's

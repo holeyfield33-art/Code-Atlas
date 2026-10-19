@@ -1547,12 +1547,18 @@ function updateLegend(){
   if(state.mode==="threatmap"){
     const o = state.overlay;
     const cappedCount = o ? cappedLeadIds().length : 0;
+    // build.ts records a failed/unreachable overlay source as a "threat-overlay"-stage bundle
+    // diagnostic (bundle-level, kept on state.bundle since loadGraph() stores the raw bundle) —
+    // without reading it here, "no threat overlay attached" gives no reason why, and the one-time
+    // CLI warning at build time is long gone by the time anyone opens the saved bundle/viewer.
+    const overlayDiag = !o && state.bundle && Array.isArray(state.bundle.diagnostics)
+      ? state.bundle.diagnostics.find(d=>d && d.stage==="threat-overlay") : null;
     el.innerHTML = o
       ? `<span><i style="background:var(--file)"></i><b>code structure</b></span>
          <span><i class="sq" style="background:var(--lead-ext)"></i><b>security lead (hypothesis)</b></span>
          <button class="unres-chip" id="unresBtn" aria-expanded="${state.showUnresolved}">unresolved (${(o.unresolved||[]).length}${Number(o.unresolvedDropped)>0?`+${Number(o.unresolvedDropped)}`:""})</button>
          ${cappedCount ? `<button class="unres-chip" id="cappedLeadsBtn" aria-expanded="${state.showCappedLeads}">not drawn (${cappedCount})</button>` : ""}`
-      : `<span><i class="sq" style="background:var(--grade-gray)"></i><b>no threat overlay attached</b></span>`;
+      : `<span><i class="sq" style="background:var(--grade-gray)"></i><b>no threat overlay attached</b>${overlayDiag ? ` — ${esc(clip(overlayDiag.message, 200))}` : ""}</span>`;
     const btn = document.getElementById("unresBtn");
     if(btn) btn.addEventListener("click",()=>{ state.showUnresolved=!state.showUnresolved; updateLegend(); });
     const cappedBtn = document.getElementById("cappedLeadsBtn");
