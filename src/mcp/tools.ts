@@ -174,7 +174,12 @@ export class AtlasTools {
       calledBy: (this.callers.get(id) ?? []).map((x) => this.callBrief(x, x, id)),
       imports: (this.importsOut.get(id) ?? []).map((x) => this.brief(x)),
       hasSource: this.sourceWindow(n).available,                 // per node: false past a truncated prefix
+      // Kept as two flags, not merged into one: a finding is graded on THIS repo and verified;
+      // an overlay lead is an external, ungrounded hypothesis (see threatOverlay.ts's contract).
+      // An agent reading only `hasThreats` for "is this graded as a risk" must not be told false
+      // for a node that atlas_threats/atlas_threat_leads would report a lead on.
       hasThreats: (this.findingsByNode.get(id)?.length ?? 0) > 0,
+      hasThreatLeads: (this.leadsByNode.get(id)?.length ?? 0) > 0,
       hasLesson: this.lessonByNode.has(id),
       evidence: n.evidence,
     };

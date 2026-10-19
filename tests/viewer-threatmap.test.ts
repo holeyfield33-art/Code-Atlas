@@ -48,8 +48,9 @@ assert.strictEqual((bigCard.match(/<li>/g) || []).length, 21, "evidence rows are
 assert.match(bigCard, /4980 more evidence/, "the omitted count is stated");
 
 const LEAD_CARDS_SHOWN_SRC = grab(/const LEAD_CARDS_SHOWN\s*=\s*\d+;/);
+const MEMBER_LEADS_SHOWN_SRC = grab(/const MEMBER_LEADS_SHOWN\s*=\s*\d+;/);
 const secSrc = grab(/function threatMapSection\(n\)\{[\s\S]*?\n\}/);
-const mk = (state: any) => new Function("state", "esc", "leadCard", "labelFor", LEAD_CARDS_SHOWN_SRC + ";" + secSrc + "; return threatMapSection;")(state, esc, leadCard, (id: string) => id) as (n: any) => string;
+const mk = (state: any) => new Function("state", "esc", "leadCard", "labelFor", LEAD_CARDS_SHOWN_SRC + ";" + MEMBER_LEADS_SHOWN_SRC + ";" + secSrc + "; return threatMapSection;")(state, esc, leadCard, (id: string) => id) as (n: any) => string;
 assert.match(mk({ overlay: null })({ id: "n", kind: "function" }), /No threat overlay attached/, "no overlay => not assessed");
 const overlay = { source: { identity: "src", ref: "r1", asOf: "2026-10-17" }, leads: [], unresolved: [] };
 const none = mk({ overlay, leadsByNode: new Map(), nbr: new Map() })({ id: "n", kind: "function" });
@@ -62,6 +63,32 @@ const manyLeads = Array.from({ length: 200 }, (_, i) => ({ id: "L" + i, attackCl
 const manySec = mk({ overlay, leadsByNode: new Map([["n", manyLeads]]), nbr: new Map() })({ id: "n", kind: "function" });
 assert.strictEqual((manySec.match(/class="lead-card/g) || []).length, 30, "only LEAD_CARDS_SHOWN lead cards render for one component");
 assert.match(manySec, /170 more lead/, "the omitted lead count is stated");
+
+// A file's leads-in-this-file list is a SEPARATE unbounded surface from the own-lead cards above:
+// a file with leads on hundreds of distinct functions must still render a bounded member list.
+const manyMembers = new Map<string, any[]>();
+const nbr = new Map<string, any>();
+for (let i = 0; i < 200; i++) { manyMembers.set("fn" + i, [{}]); nbr.set("fn" + i, { container: "file1" }); }
+const fileSec = mk({ overlay, leadsByNode: manyMembers, nbr })({ id: "file1", kind: "file" });
+assert.strictEqual((fileSec.match(/data-goto=/g) || []).length, 30, "only MEMBER_LEADS_SHOWN member functions are listed");
+assert.match(fileSec, /170 more function/, "the omitted member-function count is stated");
+
+// unresolvedPanel() renders straight from the raw bundle (not an MCP response), so neither the
+// row count nor any one entry's text is bounded by the server-side field caps — both need their
+// own client-side cap here, or a valid overlay near its 5,000-entry/5MB limits can freeze the panel.
+const clipSrc = grab(/function clip\(s, n\)\{[^\n]*\}/);
+const unresolvedRowsSrc = grab(/const UNRESOLVED_ROWS_SHOWN\s*=\s*\d+;/);
+const unresolvedTextCapSrc = grab(/const UNRESOLVED_TEXT_CAP\s*=\s*\d+;/);
+const unresolvedPanelSrc = grab(/function unresolvedPanel\(\)\{[\s\S]*?\n\}/);
+const unresolvedPanel = (state: any) => new Function("state", "esc", unresolvedRowsSrc + ";" + unresolvedTextCapSrc + ";" + clipSrc + ";" + unresolvedPanelSrc + "; return unresolvedPanel;")(state, esc)();
+assert.strictEqual(unresolvedPanel({ overlay, showUnresolved: false }), "", "hidden unless showUnresolved is on");
+const manyUnresolved = Array.from({ length: 200 }, (_, i) => ({ attackClassId: "A", description: "d" + i, reason: "r" + i }));
+const panel = unresolvedPanel({ overlay: { ...overlay, unresolved: manyUnresolved }, showUnresolved: true });
+assert.strictEqual((panel.match(/class="row"/g) || []).length, 50, "only UNRESOLVED_ROWS_SHOWN rows render, not all 200");
+assert.match(panel, /150 more unresolved/, "the omitted row count is stated");
+const hugeDesc = [{ attackClassId: "A", description: "x".repeat(10_000), reason: "r" }];
+const hugePanel = unresolvedPanel({ overlay: { ...overlay, unresolved: hugeDesc }, showUnresolved: true });
+assert.ok(hugePanel.length < 5_000, "one oversized entry's description is clipped, not emitted in full");
 
 // A collapsed file stands in for the leads on its hidden functions.
 const leadOnSrc = grab(/function leadOn\(id\)\{[\s\S]*?\n\}/);
@@ -104,6 +131,13 @@ const amOpenInspectorCall = applyModeSrc.indexOf("openInspector(");
 const amUpdateLegendCall = applyModeSrc.lastIndexOf("updateLegend()");
 assert.ok(amUpdateLegendCall > amRenderCall && amUpdateLegendCall > amOpenInspectorCall,
   "applyMode calls updateLegend() after render()/openInspector(), not before");
+// render() must run UNCONDITIONALLY on every mode switch, not only when nothing is selected:
+// openInspector()'s own wasDrawn-branch shortcut (recolor only, no render) is for a plain
+// selection change within the SAME mode, and reusing that shortcut on a mode switch would skip
+// recomputing pinnedIds() for the new mode, leaving Threat Map's lead-node pin rescue stale.
+assert.ok(amRenderCall !== -1 && amRenderCall < amOpenInspectorCall,
+  "applyMode calls render() before openInspector(), and not merely inside its branch");
+assert.doesNotMatch(applyModeSrc.slice(0, amRenderCall), /if\(/, "applyMode's render() call is unconditional");
 
 // capped leads must stay DISCOVERABLE: a lead the render cap (and its own PIN_OVERFLOW budget)
 // dropped needs a way to find it, or the earlier pin-overflow fix just reintroduces the original

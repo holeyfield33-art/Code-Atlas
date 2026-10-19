@@ -181,6 +181,15 @@ try {
   assert.strictEqual(t.leads.length, 1);
   assert.strictEqual(t.leads[0].status, "hypothetical");
   assert.match(t.note, /hypotheses to investigate, not findings/);
+
+  // getNode()'s compact flags must not under-report a lead-only node: a node with no FINDING but
+  // an external overlay LEAD should still read as having something flagged, under its own flag
+  // (never merged into hasThreats, which an agent reads as "graded on this repo").
+  const leadNode: any = tools.getNode(fn.id);
+  assert.strictEqual(leadNode.hasThreatLeads, true, "a node with an overlay lead reports hasThreatLeads");
+  assert.strictEqual(leadNode.hasThreats, false, "no finding on this node, so hasThreats stays false");
+  const noLeadNode: any = tools.getNode(file.id);
+  assert.strictEqual(noLeadNode.hasThreatLeads, false, "a node with no lead reports hasThreatLeads: false, not missing");
   const ov: any = tools.overview();
   assert.strictEqual(ov.threatOverlay.leads, 2);
   assert.strictEqual(ov.threatOverlay.unresolvedTotal, 2);
