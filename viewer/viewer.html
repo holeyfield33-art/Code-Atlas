@@ -1209,9 +1209,12 @@ const LEAD_TEXT_CAP = 300;
 function clip(s, n){ s = String(s||""); return s.length > n ? s.slice(0, n) + "…" : s; }
 function leadCard(l){
   // l.url is unclipped overlay text — safeHref() only checks the scheme and then runs the WHOLE
-  // value through encodeURI() into the href attribute, so even though every other field here is
-  // clipped, a multi-megabyte url would still produce multi-megabyte markup. Clip before encoding.
-  const href = safeHref(clip(l.url, LEAD_TEXT_CAP));
+  // value through encodeURI() into the href attribute, so an oversized url would still produce
+  // oversized markup. Clipping it the way every other field is clipped (append "…" to a prefix)
+  // would navigate somewhere ELSE entirely while still looking like the source's own link — worse
+  // than no link. So an oversized url is omitted as a link outright; only one within the safe
+  // bound is ever turned into an href.
+  const href = (l.url && String(l.url).length <= LEAD_TEXT_CAP) ? safeHref(l.url) : null;
   // The overlay document cap (5MB/5,000 entries) bounds the WHOLE document, not evidence items on
   // ONE lead — a valid sub-5MB overlay could still put tens of thousands of tiny records here.
   // Mapping an unbounded array into <li>s synchronously on open would stall/freeze the inspector.

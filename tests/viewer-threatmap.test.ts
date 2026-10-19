@@ -58,11 +58,17 @@ assert.ok(!hugeFieldCard.includes(hugeField), "the oversized field is clipped, n
 // safeHref() only checks the scheme before running the WHOLE url through encodeURI() into the
 // href attribute — every OTHER field here is clipped, but an unclipped url would still produce
 // multi-megabyte markup (and, pre-fix, run a multi-MB string through encodeURI on every open).
+// Clipping the url itself (append "…" to a prefix, like every other field) was tried first and
+// rejected: a truncated url navigates somewhere ELSE entirely while still looking like the
+// source's own link, which is worse than no link — so an oversized url is OMITTED, not truncated.
 const hugeUrl = "https://example.test/" + "z".repeat(50_000);
 const hugeUrlCard = leadCard({ id: "L4", attackClassId: "A", label: "x", status: "hypothetical", confidence: "low", note: "n", url: hugeUrl, evidence: [] });
 assert.ok(hugeUrlCard.length < 5_000, "a lead with a 50,000-char url still produces a bounded card");
-assert.ok(!hugeUrlCard.includes("z".repeat(1000)), "the url itself is clipped before being encoded into href, not emitted in full");
-assert.match(hugeUrlCard, /href="https:\/\/example\.test\//, "a valid (clipped) https url still yields a working link");
+assert.ok(!hugeUrlCard.includes("z".repeat(1000)), "the url itself never appears in full");
+assert.ok(!/href=/.test(hugeUrlCard), "an oversized url yields no link at all, not a link to a truncated (different) address");
+const okUrl = "https://example.test/short";
+const okUrlCard = leadCard({ id: "L5", attackClassId: "A", label: "x", status: "hypothetical", confidence: "low", note: "n", url: okUrl, evidence: [] });
+assert.match(okUrlCard, /href="https:\/\/example\.test\/short"/, "a url within the safe bound still yields a real, unaltered link");
 
 // a valid sub-5MB overlay can still put tens of thousands of evidence records on ONE lead — the
 // inspector must not map them all into <li>s synchronously (freeze risk), so this is bounded too.

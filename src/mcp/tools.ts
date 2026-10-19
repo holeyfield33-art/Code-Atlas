@@ -290,7 +290,7 @@ export class AtlasTools {
       const bounded = boundLeadText(l);
       rows.push({
         id: bounded.id, attackClassId: bounded.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
-        note: bounded.note, rule: bounded.rule ?? null, url: bounded.url ?? null, node: node ? this.brief(l.nodeId) : { id: l.nodeId },
+        note: bounded.note, rule: bounded.rule ?? null, url: bounded.url ?? null, evidence: bounded.evidence, evidenceTotal: bounded.evidenceTotal, node: node ? this.brief(l.nodeId) : { id: l.nodeId },
       });
     }
     const nextOffset = offset + rows.length < matched ? offset + rows.length : null;

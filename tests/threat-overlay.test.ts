@@ -315,6 +315,15 @@ try {
   assert.ok(manyEvidenceLead.evidence.length <= 50, "the evidence ARRAY is row-capped, not just each row's text fields");
   assert.strictEqual(manyEvidenceLead.evidenceTotal, 5_000, "the true evidence count is still reported, so the cap is visible rather than silent");
 
+  // --- threatLeads() must expose evidence too — threats() row-caps at ROW_CAP (500) and tells
+  // callers to page through threatLeads() for the rest, but threatLeads() rows omitted evidence
+  // entirely, so evidence on any lead past the first 500 on one node was unreachable through
+  // either MCP tool or atlas_exec. -------------------------------------------------------------
+  const manyEvidenceListLead = (new AtlasTools(builtManyEvidence.bundle).threatLeads() as any).leads.find((l: any) => l.id === "L-MANYEV");
+  assert.ok(manyEvidenceListLead.evidence, "threatLeads() rows now carry evidence, not just threats() rows");
+  assert.ok(manyEvidenceListLead.evidence.length <= 50, "threatLeads()'s evidence is row-capped the same way");
+  assert.strictEqual(manyEvidenceListLead.evidenceTotal, 5_000, "threatLeads() reports the true evidence count too");
+
   // --- threats() row-caps leads/findings for ONE ref: the 5,000-entry cap is PER BUNDLE, not per
   // node, so an untrusted overlay can still put hundreds of leads on the SAME node. ---------------
   const manyLeadsDoc = doc({
@@ -331,6 +340,22 @@ try {
   const manyLeadsThreats: any = manyLeadsTools.threats(fn.id);
   assert.strictEqual(manyLeadsThreats.leadsTotal, 30);
   assert.strictEqual(manyLeadsThreats.leads.length, 30, "under the row cap, nothing is dropped");
+
+  // --- resolveOverlay() must keep its OUTPUT unresolved array within the schema's cap, even
+  // though the two INPUT arrays it draws from (leads whose target fails to resolve, and explicit
+  // unresolved entries) are each independently capped at MAX_ENTRIES — a legitimately-sized overlay
+  // that fails resolution on most of its leads could otherwise synthesize MORE unresolved entries
+  // than the output schema allows, and parseBundle's re-validation (build.ts) would then discard
+  // the WHOLE overlay, leads included, over a diagnostics-only array being too long. ------------
+  const unresolvableLeads = Array.from({ length: 3_000 }, (_, i) => ({
+    id: `UR${i}`, attackClassId: "AAC-01", label: "l", target: "src/does-not-exist.js#missing", status: "hypothetical" as const, note: "n",
+  }));
+  const explicitUnresolved = Array.from({ length: 3_000 }, (_, i) => ({ id: `EU${i}`, attackClassId: "AAC-29", description: `entry ${i}` }));
+  const combinedOverCapDoc = doc({ leads: unresolvableLeads, unresolved: explicitUnresolved });
+  const combinedOverCap = resolveOverlay(g, combinedOverCapDoc);
+  assert.strictEqual(combinedOverCap.overlay.unresolved.length, 5_000, "the combined unresolved output is trimmed to the schema's MAX_ENTRIES cap, not left at 6,000");
+  assert.ok(combinedOverCap.warnings.some((w) => /dropped/.test(w) && /unresolved/.test(w)), "the truncation is reported as a warning, not silent");
+  assert.doesNotThrow(() => parseBundle({ ...plain, threatOverlay: combinedOverCap.overlay }), "the trimmed overlay re-validates cleanly against the bundle schema");
 
   // --- the bundle schema itself caps lead/unresolved COUNT, not just build-time OverlayInputSchema --
   // (parseBundle is the path the MCP server actually uses to load a bundle file, bypassing build())

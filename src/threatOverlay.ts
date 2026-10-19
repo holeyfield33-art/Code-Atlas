@@ -160,6 +160,19 @@ export function resolveOverlay(graph: AtlasGraph, raw: unknown): ResolvedOverlay
     seen.add(u.id);
     unresolved.push({ id: u.id, attackClassId: u.attackClassId, description: u.description, ...(u.target ? { target: u.target } : {}), reason: "reported unresolved by the source" });
   }
+  // `unresolved` is populated from TWO independently-capped (at MAX_ENTRIES) input arrays — every
+  // lead whose target failed to resolve, PLUS every explicit unresolved entry — so the combined
+  // output can run to 2x MAX_ENTRIES even though each input obeyed its own cap. ThreatOverlaySchema
+  // caps the OUTPUT `unresolved` array at MAX_ENTRIES too; without trimming here, parseBundle's
+  // re-validation below throws on a legitimately-sized overlay and the caller (build.ts) discards
+  // the WHOLE overlay — leads included — over a diagnostics-only array being too long. `unresolved`
+  // entries are diagnostics, not security findings, so truncating them (and saying so) is the right
+  // trade: it keeps every resolved LEAD intact rather than losing everything.
+  if (unresolved.length > MAX_ENTRIES) {
+    const dropped = unresolved.length - MAX_ENTRIES;
+    unresolved.length = MAX_ENTRIES;
+    warnings.push(`${dropped} unresolved entries dropped: synthesized (unresolvable lead targets) + explicit unresolved entries exceeded the ${MAX_ENTRIES}-entry output cap`);
+  }
   return { overlay: { source: input.source, leads, unresolved }, warnings };
 }
 
