@@ -11,6 +11,7 @@ import { buildAtlas } from "../src/build.js";
 import { parseBundle } from "../src/schema.js";
 import { AtlasTools } from "../src/mcp/tools.js";
 import { resolveOverlay, resolveTarget, readOverlaySource, buildTargetIndex } from "../src/threatOverlay.js";
+import { safeLog } from "../src/logSanitize.js";
 
 const root = mkdtempSync(join(tmpdir(), "atlas-overlay-"));
 try {
@@ -128,6 +129,16 @@ try {
   assert.ok(brokenOverview.overlayDiagnostics.some((d: any) => d.stage === "threat-overlay" && /overlay not attached/.test(d.message)), "overview() surfaces WHY the overlay is missing");
   // sanity: a bundle with no overlay attempt at all reports an empty list, not a stale leftover
   assert.deepStrictEqual((new AtlasTools(built.bundle).overview() as any).overlayDiagnostics, [], "no threat-overlay diagnostics when nothing went wrong");
+
+  // --- cli.ts's safeLog(): an overlay warning/error can embed untrusted text (a lead id, a parse-
+  // error excerpt) up to the overlay's 5MB field limit; printed verbatim that's both a terminal-
+  // control-sequence injection (ANSI/OSC) and an unbounded-output vector. ------------------------
+  assert.strictEqual(safeLog("lead 'L1' claimed 'observed' with no evidence"), "lead 'L1' claimed 'observed' with no evidence", "ordinary text passes through unchanged");
+  assert.strictEqual(safeLog("lead '\u001b[31mFAKE ERROR\u001b[0m' claimed X"), "lead '[31mFAKE ERROR[0m' claimed X", "ANSI escape bytes are stripped, not just the printable text around them");
+  assert.strictEqual(safeLog("a\u0007b\u009bc"), "abc", "C0 and C1 control characters are stripped");
+  const hugeWarning = safeLog("x".repeat(10_000));
+  assert.ok(hugeWarning.length < 250, "an oversized warning is capped, not printed in full");
+  assert.ok(hugeWarning.endsWith("…"), "a capped warning is marked as truncated");
   const missing = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: join(root, "absent.json") });
   assert.strictEqual(missing.overlay?.attached, false, "a missing file is reported, not fatal");
 
@@ -405,6 +416,20 @@ try {
   assert.ok(lateFinding.node && lateFinding.node.id === fn.id, "node reference is resolved");
   assert.deepStrictEqual(manyFindingsTools.finding("nope"), { error: "unknown finding id", id: "nope", hint: "use atlas_exec's atlas.findings({...}) to find an id" }, "an unknown id reports an error, not a throw");
   assert.match(findingsPage2.note, /atlas\.finding\(id\)/, "findings()'s note points at the id lookup for full detail");
+
+  // --- finding(id) must treat a duplicate id as ambiguous, like applyDisposition() already does,
+  // not silently resolve to whichever duplicate happened to land last in an id->record map. -------
+  const dupFindingsBundle = {
+    ...plain,
+    findings: [
+      { id: "DUP", nodeRefs: [fn.id], kind: "weakness" as const, title: "first", explanation: "e1", grade: "STATIC" as const, evidence: [{ source: "code-atlas/rule:test", detail: "d" }], blastRadius: [] },
+      { id: "DUP", nodeRefs: [fn.id], kind: "weakness" as const, title: "second", explanation: "e2", grade: "STATIC" as const, evidence: [{ source: "code-atlas/rule:test", detail: "d" }], blastRadius: [] },
+    ],
+  };
+  const dupFindingsTools = new AtlasTools(dupFindingsBundle);
+  const ambiguous: any = dupFindingsTools.finding("DUP");
+  assert.strictEqual(ambiguous.error, "ambiguous finding id", "a duplicate id refuses to pick one arbitrarily");
+  assert.strictEqual(ambiguous.count, 2, "the ambiguity error states how many matches there are");
 
   // --- resolveOverlay() must keep its OUTPUT unresolved array within the schema's cap, even
   // though the two INPUT arrays it draws from (leads whose target fails to resolve, and explicit

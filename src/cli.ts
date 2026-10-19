@@ -16,6 +16,7 @@ import { buildAtlas } from "./build.js";
 import { renderViewer } from "./viewer.js";
 import { serveAtlas } from "./server.js";
 import { planShards } from "./scanner/shards.js";
+import { safeLog } from "./logSanitize.js";
 
 /** Comma-separated CLI list -> trimmed non-empty entries (undefined when absent). */
 const csv = (v?: string): string[] | undefined => (v ? v.split(",").map((x) => x.trim()).filter(Boolean) : undefined);
@@ -60,8 +61,8 @@ program
       `${bundle.course?.lessons.length ?? 0} lessons, ${findingsCount} findings, ${g.diagnostics.length} diagnostics`);
     if (overlay) {
       if (overlay.attached) console.log(`  threat overlay: ${overlay.leads} lead(s) attached, ${overlay.unresolved} unresolved`);
-      else console.error(`  WARNING: threat overlay not attached: ${overlay.error}`);
-      for (const w of overlay.warnings) console.error(`  overlay warning: ${w}`);
+      else console.error(`  WARNING: threat overlay not attached: ${safeLog(overlay.error ?? "")}`);
+      for (const w of overlay.warnings) console.error(`  overlay warning: ${safeLog(w)}`);
     }
     if (redactionCount) console.log(`  redacted ${redactionCount} secret-like value(s) from inlined source`);
     const cov = bundle.coverage;

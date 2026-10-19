@@ -86,7 +86,11 @@ export class AtlasTools {
   private importsOut = new Map<string, string[]>();
   private containerOf = new Map<string, string>();
   private findingsByNode = new Map<string, any[]>();
-  private findingsById = new Map<string, any>();
+  // Array per id, not one record: parseBundle accepts a duplicate finding id (unlike a threat
+  // overlay lead/unresolved id, which it now rejects — see schema.ts), and applyDisposition()
+  // already treats a duplicate as ambiguous rather than picking one arbitrarily. finding(id)
+  // below must do the same, not silently resolve to whichever write landed last in a plain Map.
+  private findingsById = new Map<string, any[]>();
   private leadsByNode = new Map<string, ThreatLead[]>();
   private lessonByNode = new Map<string, any>();
   private inferredCall = new Set<string>();                    // `${from}->${to}` for name-inferred calls
@@ -109,7 +113,7 @@ export class AtlasTools {
     for (const l of bundle.threatOverlay?.leads ?? []) push(this.leadsByNode, l.nodeId, l);
     for (const f of bundle.findings ?? []) {
       for (const ref of f.nodeRefs) push(this.findingsByNode, ref, f);
-      this.findingsById.set(f.id, f);
+      push(this.findingsById, f.id, f);
     }
     // Same join as the viewer: the defect's own node first, then every taught node.
     const lessons = bundle.course?.lessons ?? [];
@@ -386,8 +390,14 @@ export class AtlasTools {
    *  ref has more findings than ROW_CAP: both only return compact or detailed rows for the first
    *  ROW_CAP, so anything past that is otherwise unreachable in full. Read-only. */
   finding(id: string) {
-    const f = this.findingsById.get(id);
-    if (!f) return { error: "unknown finding id", id, hint: "use atlas_exec's atlas.findings({...}) to find an id" };
+    const matches = this.findingsById.get(id);
+    if (!matches || matches.length === 0) return { error: "unknown finding id", id, hint: "use atlas_exec's atlas.findings({...}) to find an id" };
+    // parseBundle doesn't reject a duplicate finding id (unlike a threat overlay lead/unresolved
+    // id — see schema.ts), and applyDisposition() already treats one as ambiguous rather than
+    // silently acting on an arbitrary pick; this lookup addresses a finding solely by id too, so
+    // it must refuse the same way instead of returning whichever duplicate happened to be last.
+    if (matches.length > 1) return { error: "ambiguous finding id", id, count: matches.length, hint: "this id appears more than once in the bundle; disambiguate via atlas.threats(ref) or atlas.findings({...}) using node/path context instead" };
+    const f = matches[0];
     const node = this.byId.get(f.nodeRefs[0]);
     return {
       id: f.id, kind: f.kind, grade: f.grade, title: f.title, explanation: f.explanation,
