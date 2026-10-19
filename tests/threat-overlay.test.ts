@@ -207,6 +207,21 @@ try {
   assert.ok(hugeEntry.description.length < 1000, "a near-5MB description is bounded in the overview summary, not returned whole");
   assert.ok(hugeEntry.target.length < 1000, "the target field is bounded too");
 
+  // --- the SAME unresolved summary must also cap id/attackClassId/reason, not just description/target --
+  // (those two were the original fix; id/attackClassId/reason are just as overlay-controlled and were
+  // passed through verbatim by the `{ ...u }` spread)
+  const hugeOtherFieldsDoc = doc({ unresolved: [{
+    id: "U".repeat(1_000_000), attackClassId: "C".repeat(1_000_000), description: "d", reason: "r".repeat(1_000_000),
+  }] });
+  const hugeOtherFieldsFile = join(root, "huge-unresolved-other-fields-overlay.json");
+  writeFileSync(hugeOtherFieldsFile, JSON.stringify(hugeOtherFieldsDoc));
+  const builtHugeOther = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: hugeOtherFieldsFile });
+  const ovHugeOther: any = new AtlasTools(builtHugeOther.bundle).overview();
+  const hugeOtherEntry = ovHugeOther.threatOverlay.unresolved[0];
+  assert.ok(hugeOtherEntry.id.length < 1000, "unresolved.id is bounded, not passed through the spread whole");
+  assert.ok(hugeOtherEntry.attackClassId.length < 1000, "unresolved.attackClassId is bounded too");
+  assert.ok(hugeOtherEntry.reason.length < 1000, "unresolved.reason is bounded too");
+
   // --- overview()'s threatOverlay.source is also untrusted overlay text, same cap applies -----
   // (leads/unresolved had field caps; source.identity/ref/asOf did not, and overview() is the
   // RECOMMENDED FIRST call — it has to stay cheap even when those three fields are not)
@@ -234,6 +249,22 @@ try {
   assert.ok(hugeThreatsLead.evidence[0].source.length < 1000 && hugeThreatsLead.evidence[0].detail.length < 1000, "threats() bounds evidence fields too");
   const hugeListLead = (hugeTools.threatLeads() as any).leads.find((l: any) => l.id === "L-HUGE");
   assert.ok(hugeListLead.label.length < 1000 && hugeListLead.note.length < 1000, "threatLeads() bounds a lead's label/note the same way");
+
+  // --- threats() must also bound the NUMBER of evidence rows one lead carries, not just each row's
+  // text. The 5,000-entry overlay cap bounds how many LEADS a bundle holds, not how many evidence
+  // records a SINGLE lead's array has — one lead could put its whole document allowance there. -----
+  const manyEvidenceDoc = doc({ leads: [{
+    id: "L-MANYEV", attackClassId: "AAC-01", label: "many evidence rows", target: "src/handler.js#handlePrompt",
+    status: "hypothetical", note: "n",
+    evidence: Array.from({ length: 5_000 }, (_, i) => ({ source: `s${i}`, detail: `d${i}` })),
+  }] });
+  const manyEvidenceFile = join(root, "many-evidence-overlay.json");
+  writeFileSync(manyEvidenceFile, JSON.stringify(manyEvidenceDoc));
+  const builtManyEvidence = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: manyEvidenceFile });
+  const manyEvidenceLead = (new AtlasTools(builtManyEvidence.bundle).threats(fn.id) as any).leads.find((l: any) => l.id === "L-MANYEV");
+  assert.ok(manyEvidenceLead, "the many-evidence lead still resolves and attaches");
+  assert.ok(manyEvidenceLead.evidence.length <= 50, "the evidence ARRAY is row-capped, not just each row's text fields");
+  assert.strictEqual(manyEvidenceLead.evidenceTotal, 5_000, "the true evidence count is still reported, so the cap is visible rather than silent");
 
   // --- threats() row-caps leads/findings for ONE ref: the 5,000-entry cap is PER BUNDLE, not per
   // node, so an untrusted overlay can still put hundreds of leads on the SAME node. ---------------

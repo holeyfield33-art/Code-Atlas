@@ -178,6 +178,42 @@ assert.deepStrictEqual(cappedLeadIds({ ...drawnState, detail: "full" }), ["hidde
 assert.deepStrictEqual(cappedLeadIds({ ...drawnState, expanded: new Set(["f3"]) }), ["hidden-fn", "stand-in-fn"],
   "once the file is individually expanded it no longer stands in either");
 
+// The "not drawn" panel used to hard-cap itself at CAPPED_LEADS_SHOWN with a dead-end note
+// ("zoom in, select a nearby file, or search by name") — but zooming/selecting doesn't change the
+// capped SET, and searching needs the omitted node's name, which is exactly what's missing. A list
+// beyond the first page must be reachable via Prev/Next pagination, not left permanently hidden.
+const CAPPED_LEADS_SHOWN_SRC = grab(/const CAPPED_LEADS_SHOWN\s*=\s*\d+;/);
+const cappedLeadsPanelSrc = grab(/function cappedLeadsPanel\(\)\{[\s\S]*?\n\}/);
+const cappedLeadsPanel = (state: any) => new Function(
+  "state", "esc",
+  CAPPED_LEADS_SHOWN_SRC + ";" + cappedLeadIdsSrc + ";" + cappedLeadsPanelSrc + "; return cappedLeadsPanel;",
+)(state, esc)();
+const manyUndrawnLeads = Array.from({ length: 75 }, (_, i) => [`n${i}`, [{}]] as const);
+const pagedState: any = {
+  leadsByNode: new Map(manyUndrawnLeads),
+  leadFileOf: new Map(), drawn: new Set(), detail: "files", expanded: new Set(),
+  byId: new Map(manyUndrawnLeads.map(([id]) => [id, { label: id, evidence: { path: "src/x.js" } }])),
+  showCappedLeads: true, cappedLeadsPage: 0,
+};
+const page1Panel = cappedLeadsPanel(pagedState);
+assert.strictEqual((page1Panel.match(/data-goto="n\d+"/g) || []).length, 30, "the first page shows CAPPED_LEADS_SHOWN rows, not all 75");
+assert.match(page1Panel, /page 1 \/ 3/, "page count reflects ceil(75\\/30)");
+assert.match(page1Panel, /data-page-delta="-1" disabled/, "Prev is disabled on the first page");
+assert.match(page1Panel, /data-page-delta="1"(?! disabled)/, "Next is enabled when a later page exists");
+pagedState.cappedLeadsPage = 2;
+const page3Panel = cappedLeadsPanel(pagedState);
+assert.strictEqual((page3Panel.match(/data-goto="n\d+"/g) || []).length, 15, "the last page shows the remainder (75 - 2*30), not a full page of 30");
+assert.match(page3Panel, /data-page-delta="1" disabled/, "Next is disabled on the last page");
+assert.doesNotMatch(page3Panel, /data-page-delta="-1" disabled/, "Prev is enabled once off the first page");
+// a page number past the end (e.g. a re-render after the overlay shrank) must clamp, not go blank
+pagedState.cappedLeadsPage = 99;
+const clampedPanel = cappedLeadsPanel(pagedState);
+assert.strictEqual((clampedPanel.match(/data-goto="n\d+"/g) || []).length, 15, "an out-of-range page clamps back to the last real page");
+assert.strictEqual(pagedState.cappedLeadsPage, 2, "the clamp is written back to state so the legend's page indicator agrees with what's shown");
+// updateLegend() must actually wire the Prev/Next buttons it renders, or they're dead controls
+const updateLegendSrcForPaging = grab(/function updateLegend\(\)\{[\s\S]*?\n\}/);
+assert.match(updateLegendSrcForPaging, /data-page-delta/, "updateLegend's panel-wiring includes the pagination buttons");
+
 // Clicking a row in the "not drawn" panel pin-rescues that node via openInspector()'s render()
 // branch (wasDrawn was false going in), which changes state.drawn — goTo() must refresh the
 // legend afterward, or the panel keeps listing the now-visible node and its stale count until
@@ -217,4 +253,4 @@ const tdUpdateLegendCall = toggleDetailSrc.indexOf("updateLegend()");
 assert.ok(tdRenderCall !== -1 && tdUpdateLegendCall !== -1 && tdUpdateLegendCall > tdRenderCall,
   "toggleDetail() calls updateLegend() after render()");
 
-console.log("viewer-threatmap.test: 4th mode wired, overlay cannot grade Security, text escaped, links http(s) only, honest empty states, legend refreshes on load, capped leads stay discoverable, lead text bounded, panels don't overlap, mobile controls reachable, detail toggle refreshes legend");
+console.log("viewer-threatmap.test: 4th mode wired, overlay cannot grade Security, text escaped, links http(s) only, honest empty states, legend refreshes on load, capped leads stay discoverable and paginated, lead text bounded, panels don't overlap, mobile controls reachable, detail toggle refreshes legend");

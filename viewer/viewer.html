@@ -466,7 +466,7 @@ const state = {
   detail:"full", expanded:new Set(), shownNodes:0,   // bounded-loading: file-level collapse for large graphs
   course:null, lessons:new Map(), completed:new Set(),
   findingByNode:new Map(), blast:new Set(), asi:null, hasFindings:false, sources:new Map(),
-  overlay:null, leadsByNode:new Map(), leadFiles:new Set(), showUnresolved:false
+  overlay:null, leadsByNode:new Map(), leadFiles:new Set(), showUnresolved:false, cappedLeadsPage:0
 };
 // Collapse to a file-level view automatically once the full graph gets big
 // enough that rendering/simulating every node would lag.
@@ -508,7 +508,7 @@ function gradeOf(nodeId){
    Leads never feed the Security grades; they only mark nodes in the Threat Map view. */
 function buildOverlay(overlay){
   state.overlay = overlay && Array.isArray(overlay.leads) ? overlay : null;
-  state.leadsByNode = new Map(); state.leadFiles = new Set(); state.leadFileOf = new Map(); state.showUnresolved = false; state.showCappedLeads = false;
+  state.leadsByNode = new Map(); state.leadFiles = new Set(); state.leadFileOf = new Map(); state.showUnresolved = false; state.showCappedLeads = false; state.cappedLeadsPage = 0;
   if(!state.overlay) return;
   for(const l of state.overlay.leads){
     if(!state.byId.has(l.nodeId)) continue;   // a lead for a node not in this graph is ignored, never drawn
@@ -1264,16 +1264,27 @@ function unresolvedPanel(){
 }
 /* A resolved lead the render cap dropped is otherwise invisible in the 3D view with no way to
    find it (the gap Codex flagged after the pin-overflow cap was added). This list is the find-it
-   path: bounded itself (CAPPED_LEADS_SHOWN) so a huge overlay can't turn the fix into the bug. */
+   path: bounded itself (CAPPED_LEADS_SHOWN per page) so a huge overlay can't turn the fix into the
+   bug. Zoom/search alone can't reach a node outside the render cap (zooming doesn't change the
+   capped set, and search requires already knowing the omitted node's name) — so beyond the first
+   page this paginates with Prev/Next instead of just naming a dead-end workaround. */
 function cappedLeadsPanel(){
   if(!state.showCappedLeads) return "";
   const ids = cappedLeadIds(); if(!ids.length) return "";
-  const rows = ids.slice(0, CAPPED_LEADS_SHOWN).map(id=>{
+  const pageCount = Math.max(1, Math.ceil(ids.length / CAPPED_LEADS_SHOWN));
+  const page = Math.min(Math.max(Math.floor(state.cappedLeadsPage) || 0, 0), pageCount - 1);
+  state.cappedLeadsPage = page;   // clamp persists, so a shrinking list (re-render) can't strand the page past its end
+  const start = page * CAPPED_LEADS_SHOWN;
+  const rows = ids.slice(start, start + CAPPED_LEADS_SHOWN).map(id=>{
     const n = state.byId.get(id); if(!n) return "";
     return `<button class="row" data-goto="${esc(id)}" style="display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;color:inherit;font:inherit">${esc(n.label)}<br><span style="color:var(--fg-faint)">${esc(n.evidence&&n.evidence.path||"")}</span></button>`;
   }).join("");
-  const more = ids.length > CAPPED_LEADS_SHOWN ? `<p>+ ${ids.length - CAPPED_LEADS_SHOWN} more — zoom in, select a nearby file, or search by name to reach them.</p>` : "";
-  return `<div class="tm-panel" role="region" aria-label="Leads outside the render cap"><h3>Not currently drawn (${ids.length})</h3><p>The render cap withheld these — click one to bring it into view. Absence from the 3D view is not absence of a lead.</p>${rows}${more}</div>`;
+  const nav = pageCount > 1 ? `<div class="row" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+    <button data-page-delta="-1" ${page<=0?"disabled":""}>Prev</button>
+    <span style="color:var(--fg-faint)">page ${page+1} / ${pageCount}</span>
+    <button data-page-delta="1" ${page>=pageCount-1?"disabled":""}>Next</button>
+  </div>` : "";
+  return `<div class="tm-panel" role="region" aria-label="Leads outside the render cap"><h3>Not currently drawn (${ids.length})</h3><p>The render cap withheld these — click one to bring it into view, or page through the full list below. Absence from the 3D view is not absence of a lead.</p>${rows}${nav}</div>`;
 }
 
 /* ---- grounded Break & Fix -------------------------------------------------*/
@@ -1535,6 +1546,7 @@ function updateLegend(){
     if(panels){
       const host = document.createElement("div"); host.id="tmPanel"; host.innerHTML = panels;
       host.querySelectorAll("[data-goto]").forEach(b=>b.addEventListener("click",()=>goTo(b.getAttribute("data-goto"))));
+      host.querySelectorAll("[data-page-delta]").forEach(b=>b.addEventListener("click",()=>{ state.cappedLeadsPage = (state.cappedLeadsPage||0) + Number(b.getAttribute("data-page-delta")); updateLegend(); }));
       el.parentNode.appendChild(host);
     }
     return;

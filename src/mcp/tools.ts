@@ -17,17 +17,34 @@ const OVERLAY_FIELD_CAP = 200;
  *  5 MB document limit) before it leaves this process. Bounding the row/array length alone still
  *  lets one oversized field cross the MCP `ok` wrapper whole. */
 const capText = (s: string): string => (s.length > OVERLAY_FIELD_CAP ? s.slice(0, OVERLAY_FIELD_CAP) + "…" : s);
+/** Cap the number of evidence rows ONE lead can carry. The 5,000-entry overlay cap bounds how many
+ *  leads a bundle holds, not how many evidence records a SINGLE lead carries — an overlay could put
+ *  its whole allowance into one lead's evidence array. Each row is itself capText'd, but an unbounded
+ *  row COUNT still lets one lead's evidence alone serialize to megabytes. */
+const EVIDENCE_CAP = 50;
 
-function boundUnresolvedEntry<T extends { description: string; target?: string }>(u: T): T {
-  return { ...u, description: capText(u.description), ...(u.target !== undefined ? { target: capText(u.target) } : {}) };
+// Every free-text field on an UnresolvedLead is overlay-controlled and can independently run up to
+// the document limit — capping only description/target (the original fix) still lets id/attackClassId/
+// reason carry an oversized string through untouched. Cap every string field here.
+function boundUnresolvedEntry<T extends { id: string; attackClassId: string; description: string; target?: string; reason: string }>(u: T): T {
+  return {
+    ...u,
+    id: capText(u.id),
+    attackClassId: capText(u.attackClassId),
+    description: capText(u.description),
+    ...(u.target !== undefined ? { target: capText(u.target) } : {}),
+    reason: capText(u.reason),
+  };
 }
 
 /** Bound a resolved lead's free-text fields (label, note, url, each evidence item) before it's
- *  surfaced by threats()/threatLeads() — the row count being bounded does not bound any ONE row. */
-function boundLeadText(l: ThreatLead): Pick<ThreatLead, "label" | "note" | "url" | "evidence"> {
+ *  surfaced by threats()/threatLeads() — the row count being bounded does not bound any ONE row,
+ *  and the evidence array's own length is unbounded on the schema, so it is capped here too. */
+function boundLeadText(l: ThreatLead): Pick<ThreatLead, "label" | "note" | "url" | "evidence"> & { evidenceTotal: number } {
   return {
     label: capText(l.label), note: capText(l.note), url: l.url !== undefined ? capText(l.url) : undefined,
-    evidence: l.evidence.map((e) => ({ source: capText(e.source), detail: capText(e.detail) })),
+    evidence: l.evidence.slice(0, EVIDENCE_CAP).map((e) => ({ source: capText(e.source), detail: capText(e.detail) })),
+    evidenceTotal: l.evidence.length,
   };
 }
 
@@ -235,7 +252,7 @@ export class AtlasTools {
       const bounded = boundLeadText(l);
       return {
         id: l.id, attackClassId: l.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
-        note: bounded.note, rule: l.rule ?? null, url: bounded.url ?? null, evidence: bounded.evidence, node: this.brief(id),
+        note: bounded.note, rule: l.rule ?? null, url: bounded.url ?? null, evidence: bounded.evidence, evidenceTotal: bounded.evidenceTotal, node: this.brief(id),
       };
     }));
     const findingsTotal = found.length, leadsTotal = allLeads.length;
