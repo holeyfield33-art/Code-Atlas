@@ -72,6 +72,18 @@ assert.strictEqual(capped.capped, 800, "the 800 withheld nodes are reported, not
 assert.ok(/MAX_RENDER\s*=\s*\d+/.test(html), "a render cap constant is defined");
 assert.ok(/cap:\s*MAX_RENDER/.test(html), "fgData passes the cap to collapseForDetail");
 
+// PINNING MUST NOT DEFEAT THE CAP: Threat Map pins every lead-bearing node/file, and an untrusted
+// overlay can spread leads across thousands of files — a pinned set that size must not be able to
+// rescue every one of them and flood the force simulation back up past `cap`.
+const manyPinned = new Set(manyFiles.map((n: any) => n.id));   // ALL 2000 files pinned, worst case
+const cappedWithHugePin = collapseForDetail(manyFiles, [], { detail: "files", expanded: new Set(), containerOf: manyCont, filters, cap: 1200, pinned: manyPinned });
+assert.ok(cappedWithHugePin.nodes.length < 1200 + 1000, "an oversized pinned set is only honoured up to a bounded overflow, not unconditionally");
+assert.strictEqual(2000 - cappedWithHugePin.capped, cappedWithHugePin.nodes.length, "capped + drawn still accounts for every node");
+// a modest, realistic pinned set (a handful of selected/bookmarked/lead nodes) is still fully honoured
+const smallPinned = new Set(manyFiles.slice(0, 50).map((n: any) => n.id));
+const cappedWithSmallPin = collapseForDetail(manyFiles, [], { detail: "files", expanded: new Set(), containerOf: manyCont, filters, cap: 1200, pinned: smallPinned });
+assert.strictEqual(cappedWithSmallPin.nodes.length, 1200, "a realistic pinned set that already overlaps the top-1200 by degree needs no rescue");
+
 // source contract: a large graph defaults to the collapsed file view
 assert.ok(/COLLAPSE_THRESHOLD\s*=\s*\d+/.test(html), "a collapse threshold is defined");
 assert.ok(/state\.detail\s*=\s*norm\.graph\.nodes\.length\s*>\s*COLLAPSE_THRESHOLD\s*\?\s*"files"\s*:\s*"full"/.test(html.replace(/\s+/g, " ")),

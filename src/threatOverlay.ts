@@ -24,6 +24,7 @@ import { readFileSync, statSync } from "node:fs";
 import { z } from "zod";
 import {
   LeadStatusSchema,
+  MAX_OVERLAY_ENTRIES,
   type AtlasGraph,
   type AtlasNode,
   type ThreatLead,
@@ -33,7 +34,9 @@ import {
 
 const MAX_OVERLAY_BYTES = 5_000_000;
 const FETCH_TIMEOUT_MS = 10_000;
-const MAX_ENTRIES = 5_000;
+// Shared with ThreatOverlaySchema (schema.ts), which re-enforces the SAME cap on a bundle handed
+// straight to parseBundle — this one only applies at build time via resolveOverlay().
+const MAX_ENTRIES = MAX_OVERLAY_ENTRIES;
 
 const httpUrl = z.string().refine((u) => /^https?:\/\//i.test(u), "url must be http(s)");
 const EvidenceItem = z.object({ source: z.string(), detail: z.string() });

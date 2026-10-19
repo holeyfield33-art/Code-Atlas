@@ -201,7 +201,12 @@ export class AtlasTools {
   }
 
   threats(ref: string) {
-    // ref is a node id or a file path
+    // ref is a node id or a file path. `ref` is usually one node (or a handful sharing a file),
+    // so findings are inherently bounded in practice — but a lead count is set by the UNTRUSTED
+    // overlay, not by this repo's shape, and OverlayInputSchema's 5,000-entry cap is PER BUNDLE,
+    // not per node: every one of them could target the same file. Row-cap both, same as findings()
+    // and threatLeads(), so one ref can't make the MCP `ok` wrapper serialize an unbounded array.
+    const ROW_CAP = 500;
     const ids = this.byId.has(ref) ? [ref]
       : this.bundle.graph.nodes.filter((n) => n.evidence.path === ref).map((n) => n.id);
     const found: any[] = [];
@@ -213,14 +218,19 @@ export class AtlasTools {
       asiRef: f.asiRef ?? null,
       disposition: f.disposition ?? null,
     });
-    const leads = ids.flatMap((id) => (this.leadsByNode.get(id) ?? []).map((l) => {
+    const allLeads = ids.flatMap((id) => (this.leadsByNode.get(id) ?? []).map((l) => {
       const bounded = boundLeadText(l);
       return {
         id: l.id, attackClassId: l.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
         note: bounded.note, rule: l.rule ?? null, url: bounded.url ?? null, evidence: bounded.evidence, node: this.brief(id),
       };
     }));
-    return { ref, findings: found, leads, note: "Leads come from an external overlay and are hypotheses to investigate, not findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Grade reflects how this was verified; a dependency link alone does not establish exploitability. A disposition is a human/agent triage decision and never upgrades the grade." };
+    const findingsTotal = found.length, leadsTotal = allLeads.length;
+    return {
+      ref, findings: found.slice(0, ROW_CAP), findingsTotal, leads: allLeads.slice(0, ROW_CAP), leadsTotal,
+      note: "Leads come from an external overlay and are hypotheses to investigate, not findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Grade reflects how this was verified; a dependency link alone does not establish exploitability. A disposition is a human/agent triage decision and never upgrades the grade." +
+        (leadsTotal > ROW_CAP || findingsTotal > ROW_CAP ? ` Row-capped at ${ROW_CAP}; use atlas_threat_leads with filters to page through the rest.` : ""),
+    };
   }
 
   /** List RESOLVED overlay leads without knowing a node id or path first (threats() needs one) —

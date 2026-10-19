@@ -231,6 +231,11 @@ export const AsiSnapshotSchema = z.object({
  *  it never colours a node as a verified weakness - only a finding graded
  *  OBSERVED/TESTED on this repo can do that. A lead whose target cannot be
  *  matched to exactly one node is kept as `unresolved`, never guessed. */
+// Shared with threatOverlay.ts's OverlayInputSchema, which enforces this at BUILD time. A bundle
+// handed straight to parseBundle (e.g. the MCP server reading a bundle file directly) bypasses
+// that build-time schema entirely, so the SAME cap must also live on the bundle schema itself —
+// otherwise an externally produced bundle could carry an unbounded lead/unresolved count.
+export const MAX_OVERLAY_ENTRIES = 5_000;
 export const LeadStatusSchema = z.enum(["hypothetical", "inferred", "observed", "verified", "refuted"]);
 export const ThreatLeadSchema = z.object({
   id: z.string(),
@@ -254,8 +259,8 @@ export const UnresolvedLeadSchema = z.object({
 });
 export const ThreatOverlaySchema = z.object({
   source: z.object({ identity: z.string(), ref: z.string(), asOf: z.string() }),
-  leads: z.array(ThreatLeadSchema),
-  unresolved: z.array(UnresolvedLeadSchema),
+  leads: z.array(ThreatLeadSchema).max(MAX_OVERLAY_ENTRIES),
+  unresolved: z.array(UnresolvedLeadSchema).max(MAX_OVERLAY_ENTRIES),
 });
 export type ThreatLead = z.infer<typeof ThreatLeadSchema>;
 export type UnresolvedLead = z.infer<typeof UnresolvedLeadSchema>;

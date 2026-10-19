@@ -194,6 +194,29 @@ try {
   const hugeListLead = (hugeTools.threatLeads() as any).leads.find((l: any) => l.id === "L-HUGE");
   assert.ok(hugeListLead.label.length < 1000 && hugeListLead.note.length < 1000, "threatLeads() bounds a lead's label/note the same way");
 
+  // --- threats() row-caps leads/findings for ONE ref: the 5,000-entry cap is PER BUNDLE, not per
+  // node, so an untrusted overlay can still put hundreds of leads on the SAME node. ---------------
+  const manyLeadsDoc = doc({
+    leads: Array.from({ length: 30 }, (_, i) => ({
+      id: `M${i}`, attackClassId: "AAC-01", label: "l", target: "src/handler.js#handlePrompt", status: "hypothetical", note: "n",
+    })),
+  });
+  const manyLeadsFile = join(root, "many-leads-overlay.json");
+  writeFileSync(manyLeadsFile, JSON.stringify(manyLeadsDoc));
+  const builtManyLeads = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: manyLeadsFile });
+  const manyLeadsTools = new AtlasTools(builtManyLeads.bundle);
+  // ROW_CAP (500) is far above 30, so this exercises the plumbing (leadsTotal/findingsTotal present,
+  // nothing dropped yet) — the cap's actual truncation is exercised by the schema-level test below.
+  const manyLeadsThreats: any = manyLeadsTools.threats(fn.id);
+  assert.strictEqual(manyLeadsThreats.leadsTotal, 30);
+  assert.strictEqual(manyLeadsThreats.leads.length, 30, "under the row cap, nothing is dropped");
+
+  // --- the bundle schema itself caps lead/unresolved COUNT, not just build-time OverlayInputSchema --
+  // (parseBundle is the path the MCP server actually uses to load a bundle file, bypassing build())
+  const tooManyLeads = JSON.parse(JSON.stringify(built.bundle));
+  tooManyLeads.threatOverlay.leads = Array.from({ length: 5001 }, (_, i) => ({ ...tooManyLeads.threatOverlay.leads[0], id: `X${i}` }));
+  assert.throws(() => parseBundle(tooManyLeads), "a bundle with more than 5,000 leads is rejected even when handed directly to parseBundle");
+
   // --- atlas.threatLeads(): resolved leads are enumerable without knowing a node id first ---
   const allLeads: any = tools.threatLeads();
   assert.strictEqual(allLeads.leads.length, 2, "both resolved leads are listed with no ref needed");

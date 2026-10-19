@@ -763,7 +763,17 @@ function collapseForDetail(nodes, edges, opts){
     visNodes = ranked.slice(0, cap);
     if(pinned && pinned.size){            // what the person selected, bookmarked or recently opened stays drawn
       const have = new Set(visNodes.map(n=>n.id));
-      for(const n of beforeCap) if(pinned.has(n.id) && !have.has(n.id)){ visNodes.push(n); capped--; }
+      // Pinning can RESCUE a capped node, but only up to a bounded overflow: a pinned set driven
+      // by untrusted data (Threat Map pins every lead-bearing node/file, and an overlay can spread
+      // leads across thousands of files) must not be able to defeat `cap` and flood the simulation.
+      // Past this budget a pinned node just stays capped like any other — still searchable, still
+      // counted in `capped` so the UI's "withheld" note stays honest.
+      const PIN_OVERFLOW = 300;
+      let added = 0;
+      for(const n of beforeCap){
+        if(added >= PIN_OVERFLOW) break;
+        if(pinned.has(n.id) && !have.has(n.id)){ visNodes.push(n); capped--; added++; }
+      }
     }
   }
   const visSet = new Set(visNodes.map(n=>n.id));
