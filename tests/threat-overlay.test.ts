@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { buildAtlas } from "../src/build.js";
 import { parseBundle } from "../src/schema.js";
 import { AtlasTools } from "../src/mcp/tools.js";
-import { resolveOverlay, resolveTarget, readOverlaySource } from "../src/threatOverlay.js";
+import { resolveOverlay, resolveTarget, readOverlaySource, buildTargetIndex } from "../src/threatOverlay.js";
 
 const root = mkdtempSync(join(tmpdir(), "atlas-overlay-"));
 try {
@@ -33,6 +33,16 @@ try {
   // `render` exists in two files: a bare name is not a valid target, and path#name picks one
   assert.ok("reason" in resolveTarget(g, "nope.js"), "unknown file is unresolved");
   assert.ok(!("reason" in resolveTarget(g, "src/twin.js#render")), "path#name disambiguates same-named functions");
+
+  // --- resolving many targets against one graph reuses a built index, not a per-call scan ---
+  // (perf finding: resolveTarget scanned the whole node array twice per lead; resolveOverlay()
+  // now builds a TargetIndex once and passes it through, so results must match the unindexed path)
+  const idx = buildTargetIndex(g);
+  assert.deepStrictEqual(resolveTarget(g, fn.id, idx), resolveTarget(g, fn.id), "indexed lookup agrees with unindexed for a node id");
+  assert.deepStrictEqual(resolveTarget(g, "src/handler.js#handlePrompt", idx), resolveTarget(g, "src/handler.js#handlePrompt"), "indexed lookup agrees for path#name");
+  assert.deepStrictEqual(resolveTarget(g, "src/handler.js", idx), resolveTarget(g, "src/handler.js"), "indexed lookup agrees for a file path");
+  assert.deepStrictEqual(resolveTarget(g, "src/twin.js#render", idx), resolveTarget(g, "src/twin.js#render"), "indexed lookup agrees when disambiguated by path#name");
+  assert.ok("reason" in resolveTarget(g, "nope.js#missing", idx), "indexed lookup still reports unresolved targets");
 
   // --- resolveOverlay: validation + grounding rules ---------------------------
   const doc = (over: Record<string, unknown> = {}) => ({

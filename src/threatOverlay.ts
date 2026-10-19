@@ -73,24 +73,56 @@ function stripPrefix(t: string): string {
 
 type Match = { nodeId: string } | { reason: string };
 
-/** Resolve a target string to exactly one node, or say why not. */
-export function resolveTarget(graph: AtlasGraph, rawTarget: string): Match {
+/** Indexes for resolving many targets against one graph without re-scanning all nodes per
+ *  lead. `resolveOverlay` builds this ONCE and reuses it for every lead; without it, resolving
+ *  N leads against M nodes costs O(N*M) full-graph scans, which stalls on a large graph with
+ *  an overlay near the 5,000-lead cap. */
+export interface TargetIndex {
+  byId: Map<string, Set<AtlasNode>>;
+  byFunc: Map<string, Set<AtlasNode>>;
+  byFile: Map<string, Set<AtlasNode>>;
+}
+
+function addTo(map: Map<string, Set<AtlasNode>>, key: string, n: AtlasNode): void {
+  let s = map.get(key);
+  if (!s) { s = new Set(); map.set(key, s); }
+  s.add(n);
+}
+
+export function buildTargetIndex(graph: AtlasGraph): TargetIndex {
+  const byId: Map<string, Set<AtlasNode>> = new Map();
+  const byFunc: Map<string, Set<AtlasNode>> = new Map();
+  const byFile: Map<string, Set<AtlasNode>> = new Map();
+  for (const n of graph.nodes) {
+    addTo(byId, n.id, n);
+    if (n.stableKey && n.stableKey !== n.id) addTo(byId, n.stableKey, n);
+    if (n.kind === "function") addTo(byFunc, `${n.evidence.path}#${n.label}`, n);
+    if (n.kind === "file") { addTo(byFile, n.label, n); if (n.evidence.path !== n.label) addTo(byFile, n.evidence.path, n); }
+  }
+  return { byId, byFunc, byFile };
+}
+
+/** Resolve a target string to exactly one node, or say why not. Pass a `TargetIndex` (built
+ *  once via `buildTargetIndex`) when resolving many targets against the same graph; one is
+ *  built on the fly here when omitted, for a single lookup. */
+export function resolveTarget(graph: AtlasGraph, rawTarget: string, index?: TargetIndex): Match {
+  const idx = index ?? buildTargetIndex(graph);
   const target = stripPrefix(rawTarget.trim());
-  const byId = graph.nodes.filter((n) => n.id === rawTarget || n.id === target || n.stableKey === rawTarget || n.stableKey === target);
-  if (byId.length === 1) return { nodeId: byId[0].id };
-  if (byId.length > 1) return { reason: `ambiguous: ${byId.length} nodes share that id` };
+
+  const idMatches = new Set<AtlasNode>();
+  for (const key of target === rawTarget ? [rawTarget] : [rawTarget, target]) {
+    const s = idx.byId.get(key);
+    if (s) for (const n of s) idMatches.add(n);
+  }
+  if (idMatches.size === 1) return { nodeId: [...idMatches][0].id };
+  if (idMatches.size > 1) return { reason: `ambiguous: ${idMatches.size} nodes share that id` };
 
   const hash = target.indexOf("#");
-  let candidates: AtlasNode[];
-  if (hash > 0) {
-    const path = target.slice(0, hash), name = target.slice(hash + 1);
-    candidates = graph.nodes.filter((n) => n.kind === "function" && n.evidence.path === path && n.label === name);
-  } else {
-    candidates = graph.nodes.filter((n) => n.kind === "file" && (n.label === target || n.evidence.path === target));
-  }
-  if (candidates.length === 1) return { nodeId: candidates[0].id };
-  if (candidates.length === 0) return { reason: "target not found in this graph" };
-  return { reason: `ambiguous: ${candidates.length} nodes match` };
+  const candidates = hash > 0 ? idx.byFunc.get(target) : idx.byFile.get(target);
+  const count = candidates?.size ?? 0;
+  if (count === 1) return { nodeId: [...candidates!][0].id };
+  if (count === 0) return { reason: "target not found in this graph" };
+  return { reason: `ambiguous: ${count} nodes match` };
 }
 
 export interface ResolvedOverlay { overlay: ThreatOverlay; warnings: string[]; }
@@ -102,11 +134,12 @@ export function resolveOverlay(graph: AtlasGraph, raw: unknown): ResolvedOverlay
   const leads: ThreatLead[] = [];
   const unresolved: UnresolvedLead[] = [];
   const seen = new Set<string>();
+  const index = buildTargetIndex(graph);
 
   for (const l of input.leads) {
     if (seen.has(l.id)) { warnings.push(`duplicate lead id '${l.id}' ignored`); continue; }
     seen.add(l.id);
-    const m = resolveTarget(graph, l.target);
+    const m = resolveTarget(graph, l.target, index);
     if ("reason" in m) {
       unresolved.push({ id: l.id, attackClassId: l.attackClassId, description: l.note, target: l.target, reason: m.reason });
       continue;

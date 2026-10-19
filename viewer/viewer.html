@@ -1170,6 +1170,7 @@ function securitySection(n){
 const LEAD_LABEL = { hypothetical:"HYPOTHETICAL LEAD", inferred:"INFERRED LEAD", observed:"REPORTED OBSERVED", verified:"REPORTED VERIFIED", refuted:"REFUTED" };
 function safeHref(u){ return /^https?:\/\//i.test(u||"") ? encodeURI(u) : null; }
 const EVIDENCE_ROWS_SHOWN = 20;
+const LEAD_CARDS_SHOWN = 30;
 function leadCard(l){
   const href = safeHref(l.url);
   // The overlay document cap (5MB/5,000 entries) bounds the WHOLE document, not evidence items on
@@ -1200,7 +1201,13 @@ function threatMapSection(n){
   }
   const memberRows = members.length
     ? `<div class="conn-row"><span class="lab">leads in this file</span><span class="vals">${members.map(([id,ls])=>`<b data-goto="${esc(id)}">${esc(labelFor(id))}</b> (${ls.length})`).join(", ")}</span></div>` : "";
-  return `<div class="sec">${own.map(leadCard).join("")}${memberRows}${stamp}</div>`;
+  // The overlay schema permits up to 5,000 leads total, and nothing stops them all landing on
+  // one node — render only the first LEAD_CARDS_SHOWN as full cards so opening such a node can't
+  // synchronously build tens of thousands of DOM elements and freeze the inspector.
+  const shown = own.slice(0, LEAD_CARDS_SHOWN);
+  const overflowNote = own.length > LEAD_CARDS_SHOWN
+    ? `<p class="sec-note">+ ${own.length - LEAD_CARDS_SHOWN} more lead(s) on this component not shown.</p>` : "";
+  return `<div class="sec">${shown.map(leadCard).join("")}${overflowNote}${memberRows}${stamp}</div>`;
 }
 function unresolvedPanel(){
   const o = state.overlay; if(!o || !state.showUnresolved) return "";
@@ -1443,8 +1450,11 @@ function buildFG(){
 function applyMode(m){
   state.mode=m;
   document.querySelectorAll(".modes button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.mode===m)));
-  updateLegend();
+  // updateLegend() AFTER render(), same reason as loadGraph: its Threat Map branch reads
+  // state.drawn, which render()/fgData() sets. Calling it first would read the drawn set from
+  // before this mode switch's pin rescue ran, mislabeling freshly-rescued leads as capped.
   if(state.selected) openInspector(state.selected); else render();
+  updateLegend();
 }
 function updateLegend(){
   const el=document.getElementById("legend"); if(!el) return;

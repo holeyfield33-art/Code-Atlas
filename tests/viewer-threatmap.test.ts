@@ -47,13 +47,21 @@ const bigCard = leadCard({ id: "L2", attackClassId: "A", label: "x", status: "hy
 assert.strictEqual((bigCard.match(/<li>/g) || []).length, 21, "evidence rows are capped (20 shown + 1 'more' row), not all 5000 rendered");
 assert.match(bigCard, /4980 more evidence/, "the omitted count is stated");
 
+const LEAD_CARDS_SHOWN_SRC = grab(/const LEAD_CARDS_SHOWN\s*=\s*\d+;/);
 const secSrc = grab(/function threatMapSection\(n\)\{[\s\S]*?\n\}/);
-const mk = (state: any) => new Function("state", "esc", "leadCard", "labelFor", secSrc + "; return threatMapSection;")(state, esc, leadCard, (id: string) => id) as (n: any) => string;
+const mk = (state: any) => new Function("state", "esc", "leadCard", "labelFor", LEAD_CARDS_SHOWN_SRC + ";" + secSrc + "; return threatMapSection;")(state, esc, leadCard, (id: string) => id) as (n: any) => string;
 assert.match(mk({ overlay: null })({ id: "n", kind: "function" }), /No threat overlay attached/, "no overlay => not assessed");
 const overlay = { source: { identity: "src", ref: "r1", asOf: "2026-10-17" }, leads: [], unresolved: [] };
 const none = mk({ overlay, leadsByNode: new Map(), nbr: new Map() })({ id: "n", kind: "function" });
 assert.match(none, /Absence of a lead is not proof of safety/);
 assert.doesNotMatch(none, /no vulnerabilit|is safe|not vulnerable/i, "an empty node is never declared safe");
+
+// The overlay schema permits up to 5,000 leads total with nothing stopping them all landing on
+// one node — opening that node must not synchronously build thousands of lead cards.
+const manyLeads = Array.from({ length: 200 }, (_, i) => ({ id: "L" + i, attackClassId: "A", label: "x" + i, status: "hypothetical", confidence: "low", note: "n", evidence: [] }));
+const manySec = mk({ overlay, leadsByNode: new Map([["n", manyLeads]]), nbr: new Map() })({ id: "n", kind: "function" });
+assert.strictEqual((manySec.match(/class="lead-card/g) || []).length, 30, "only LEAD_CARDS_SHOWN lead cards render for one component");
+assert.match(manySec, /170 more lead/, "the omitted lead count is stated");
 
 // A collapsed file stands in for the leads on its hidden functions.
 const leadOnSrc = grab(/function leadOn\(id\)\{[\s\S]*?\n\}/);
@@ -86,6 +94,16 @@ assert.ok(buildOverlayCall !== -1 && updateLegendCall !== -1 && updateLegendCall
   "loadGraph calls updateLegend() after buildOverlay(), so the legend/unresolved panel never shows a stale overlay");
 assert.ok(renderCall !== -1 && updateLegendCall > renderCall,
   "loadGraph's updateLegend() call comes AFTER render(): its Threat Map branch reads state.drawn (set by render()/fgData()) to list capped leads, and calling it any earlier would read the PREVIOUS graph's drawn set");
+
+// applyMode() (switching modes, e.g. into Threat Map, without loading a new bundle) has the
+// same ordering requirement: calling updateLegend() before the render()/openInspector() that
+// re-pins Threat Map leads would label freshly-rescued nodes as still capped.
+const applyModeSrc = grab(/function applyMode\(m\)\{[\s\S]*?\n\}/);
+const amRenderCall = applyModeSrc.indexOf("render()");
+const amOpenInspectorCall = applyModeSrc.indexOf("openInspector(");
+const amUpdateLegendCall = applyModeSrc.lastIndexOf("updateLegend()");
+assert.ok(amUpdateLegendCall > amRenderCall && amUpdateLegendCall > amOpenInspectorCall,
+  "applyMode calls updateLegend() after render()/openInspector(), not before");
 
 // capped leads must stay DISCOVERABLE: a lead the render cap (and its own PIN_OVERFLOW budget)
 // dropped needs a way to find it, or the earlier pin-overflow fix just reintroduces the original
