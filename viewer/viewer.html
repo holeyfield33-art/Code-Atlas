@@ -534,7 +534,12 @@ function cappedLeadIds(){
   for(const id of state.leadsByNode.keys()){
     if(state.drawn.has(id)) continue;
     const fileId = state.leadFileOf && state.leadFileOf.get(id);
-    if(fileId && state.drawn.has(fileId)) continue;
+    // A drawn containing file only stands in for its hidden functions' leads under the SAME
+    // condition leadOn() uses (collapsed, "files" detail, not individually expanded) — in Full
+    // detail, or once the file is expanded, a drawn file no longer represents them visually, so
+    // treating it as covered here would make those leads uncolored AND undiscoverable.
+    const fileStandsIn = fileId && state.drawn.has(fileId) && state.detail==="files" && !state.expanded.has(fileId);
+    if(fileStandsIn) continue;
     out.push(id);
   }
   return out;
@@ -921,6 +926,12 @@ function toggleDetail(){
   state.detail = state.detail==="files" ? "full" : "files";
   if(state.detail==="files") state.expanded = new Set();   // start fully collapsed
   render();
+  // cappedLeadIds()/leadOn() both read state.detail and state.drawn (set by the render() above)
+  // to decide whether a collapsed file stands in for its hidden functions' leads — switching
+  // Files<->Full changes that answer for every lead-bearing file, so the legend's capped-lead
+  // count and any open panel need to refresh here too, same as every other render path that can
+  // change what counts as "drawn".
+  updateLegend();
 }
 
 /* ---- Inspector: plain-language DEFAULT, evidence BEHIND a toggle. --------- */

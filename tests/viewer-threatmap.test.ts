@@ -166,8 +166,17 @@ const drawnState = {
   leadsByNode: new Map([["drawn-fn", [{}]], ["hidden-fn", [{}]], ["stand-in-fn", [{}]]]),
   leadFileOf: new Map([["drawn-fn", "f1"], ["hidden-fn", "f2"], ["stand-in-fn", "f3"]]),
   drawn: new Set(["drawn-fn", "f3"]),   // drawn-fn is drawn directly; stand-in-fn's FILE (f3) is drawn instead; hidden-fn is neither
+  detail: "files", expanded: new Set(),   // f3 is COLLAPSED, so it validly stands in for stand-in-fn (same condition as leadOn())
 };
 assert.deepStrictEqual(cappedLeadIds(drawnState), ["hidden-fn"], "only a lead whose node AND containing file are both undrawn counts as capped");
+
+// A drawn file only stands in for its hidden functions' leads under leadOn()'s OWN condition —
+// "files" detail and not individually expanded. In Full detail, or once the file is expanded, a
+// drawn file is no longer a visual stand-in (same file content as above, different detail state).
+assert.deepStrictEqual(cappedLeadIds({ ...drawnState, detail: "full" }), ["hidden-fn", "stand-in-fn"],
+  "in Full detail a drawn file no longer stands in for its functions' leads, so they count as capped too");
+assert.deepStrictEqual(cappedLeadIds({ ...drawnState, expanded: new Set(["f3"]) }), ["hidden-fn", "stand-in-fn"],
+  "once the file is individually expanded it no longer stands in either");
 
 // Clicking a row in the "not drawn" panel pin-rescues that node via openInspector()'s render()
 // branch (wasDrawn was false going in), which changes state.drawn — goTo() must refresh the
@@ -198,4 +207,14 @@ const updateLegendSrc = grab(/function updateLegend\(\)\{[\s\S]*?\n\}/);
 assert.match(updateLegendSrc, /classList\.remove\("has-controls"\)/, "updateLegend resets the class before deciding whether to re-add it");
 assert.match(updateLegendSrc, /if\(btn \|\| cappedBtn\) el\.classList\.add\("has-controls"\)/, "updateLegend adds has-controls only when it actually put a button in the legend");
 
-console.log("viewer-threatmap.test: 4th mode wired, overlay cannot grade Security, text escaped, links http(s) only, honest empty states, legend refreshes on load, capped leads stay discoverable, lead text bounded, panels don't overlap, mobile controls reachable");
+// Toggling Files<->Full detail re-renders (changing state.drawn) and also changes what
+// cappedLeadIds()/leadOn() consider a valid file stand-in (see the fix above) — the legend's
+// capped-lead count and any open panel must refresh here too, like every other render path that
+// can change what counts as "drawn" (loadGraph, applyMode, goTo).
+const toggleDetailSrc = grab(/function toggleDetail\(\)\{[\s\S]*?\n\}/);
+const tdRenderCall = toggleDetailSrc.indexOf("render()");
+const tdUpdateLegendCall = toggleDetailSrc.indexOf("updateLegend()");
+assert.ok(tdRenderCall !== -1 && tdUpdateLegendCall !== -1 && tdUpdateLegendCall > tdRenderCall,
+  "toggleDetail() calls updateLegend() after render()");
+
+console.log("viewer-threatmap.test: 4th mode wired, overlay cannot grade Security, text escaped, links http(s) only, honest empty states, legend refreshes on load, capped leads stay discoverable, lead text bounded, panels don't overlap, mobile controls reachable, detail toggle refreshes legend");
