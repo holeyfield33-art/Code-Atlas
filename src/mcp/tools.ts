@@ -43,9 +43,9 @@ function boundUnresolvedEntry<T extends { id: string; attackClassId: string; des
  *  it is capped here too. Fresh evidence after the first field-cap round: id/attackClassId/rule
  *  were still passed through the call sites verbatim, so an overlay could still put its 5MB
  *  allowance into any of those three instead. */
-function boundLeadText(l: ThreatLead): Pick<ThreatLead, "id" | "attackClassId" | "label" | "note" | "rule" | "url" | "evidence"> & { evidenceTotal: number } {
+function boundLeadText(l: ThreatLead): Pick<ThreatLead, "id" | "attackClassId" | "label" | "note" | "rule" | "url" | "target" | "evidence"> & { evidenceTotal: number } {
   return {
-    id: capText(l.id), attackClassId: capText(l.attackClassId),
+    id: capText(l.id), attackClassId: capText(l.attackClassId), target: capText(l.target),
     label: capText(l.label), note: capText(l.note), rule: l.rule !== undefined ? capText(l.rule) : undefined,
     // A truncated url (capText's slice+"…") is a DIFFERENT address that still looks like the
     // source's own reference — a caller that follows or cites it lands somewhere else entirely.
@@ -92,6 +92,7 @@ export class AtlasTools {
   // below must do the same, not silently resolve to whichever write landed last in a plain Map.
   private findingsById = new Map<string, any[]>();
   private leadsByNode = new Map<string, ThreatLead[]>();
+  private leadsById = new Map<string, ThreatLead>();   // parseBundle rejects a duplicate lead id, so one entry per id is safe
   private lessonByNode = new Map<string, any>();
   private inferredCall = new Set<string>();                    // `${from}->${to}` for name-inferred calls
 
@@ -110,7 +111,7 @@ export class AtlasTools {
       else if (e.kind === "imports") push(this.importsOut, e.from, e.to);
       else if (e.kind === "contains") this.containerOf.set(e.to, e.from);
     }
-    for (const l of bundle.threatOverlay?.leads ?? []) push(this.leadsByNode, l.nodeId, l);
+    for (const l of bundle.threatOverlay?.leads ?? []) { push(this.leadsByNode, l.nodeId, l); this.leadsById.set(l.id, l); }
     for (const f of bundle.findings ?? []) {
       for (const ref of f.nodeRefs) push(this.findingsByNode, ref, f);
       push(this.findingsById, f.id, f);
@@ -283,13 +284,14 @@ export class AtlasTools {
       const bounded = boundLeadText(l);
       return {
         id: bounded.id, attackClassId: bounded.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
-        note: bounded.note, rule: bounded.rule ?? null, url: bounded.url ?? null, evidence: bounded.evidence, evidenceTotal: bounded.evidenceTotal, node: this.brief(id),
+        note: bounded.note, rule: bounded.rule ?? null, url: bounded.url ?? null, target: bounded.target, evidence: bounded.evidence, evidenceTotal: bounded.evidenceTotal, node: this.brief(id),
       };
     }));
     const findingsTotal = found.length, leadsTotal = allLeads.length;
     return {
       ref, findings: found.slice(0, ROW_CAP), findingsTotal, leads: allLeads.slice(0, ROW_CAP), leadsTotal,
       note: "Leads come from an external overlay and are hypotheses to investigate, not findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Grade reflects how this was verified; a dependency link alone does not establish exploitability. A disposition is a human/agent triage decision and never upgrades the grade." +
+        " A lead's evidence is capped at 50 rows here; use atlas.lead(id, {offset}) via atlas_exec for the rest." +
         // atlas_threat_leads only paginates LEADS; a findings overflow needs findings() (now
         // itself offset-paginated), reachable via atlas_exec since findings() has no standalone
         // MCP tool — pointing BOTH kinds of overflow at atlas_threat_leads left findings past the
@@ -321,14 +323,38 @@ export class AtlasTools {
       const bounded = boundLeadText(l);
       rows.push({
         id: bounded.id, attackClassId: bounded.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
-        note: bounded.note, rule: bounded.rule ?? null, url: bounded.url ?? null, evidence: bounded.evidence, evidenceTotal: bounded.evidenceTotal, node: node ? this.brief(l.nodeId) : { id: l.nodeId },
+        note: bounded.note, rule: bounded.rule ?? null, url: bounded.url ?? null, target: bounded.target, evidence: bounded.evidence, evidenceTotal: bounded.evidenceTotal, node: node ? this.brief(l.nodeId) : { id: l.nodeId },
       });
     }
     const nextOffset = offset + rows.length < matched ? offset + rows.length : null;
     return {
       total: matched, returned: rows.length, offset, nextOffset, leads: rows,
       note: "Leads are hypotheses from an external overlay, never findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Use atlas_threats(id) for a node's leads plus its real findings together." +
+        " A lead's evidence is capped at 50 rows here; use atlas.lead(id, {offset}) via atlas_exec to page through every evidence row on one lead." +
         (nextOffset !== null ? ` More match than fit in this page; call again with offset=${nextOffset} for the rest.` : ""),
+    };
+  }
+
+  /** One resolved lead's full detail by id, with its evidence array PAGINATED — threats()/
+   *  threatLeads() both cap evidence at EVIDENCE_CAP (50) per row with no way past that, so a
+   *  lead whose source attached more than 50 evidence records had the rest permanently
+   *  unreachable. Read-only. */
+  lead(id: string, filter: { limit?: number; offset?: number } = {}) {
+    const l = this.leadsById.get(id);
+    if (!l) return { error: "unknown lead id", id, hint: "use atlas_threat_leads or atlas.threatLeads({...}) to find an id" };
+    const limit = Math.min(Math.max(Math.floor(Number(filter.limit) || EVIDENCE_CAP), 1), 1000);
+    const offset = Math.max(Math.floor(Number(filter.offset) || 0), 0);
+    const evidence = l.evidence.slice(offset, offset + limit).map((e) => ({ source: capText(e.source), detail: capText(e.detail) }));
+    const nextOffset = offset + evidence.length < l.evidence.length ? offset + evidence.length : null;
+    const node = this.byId.get(l.nodeId);
+    return {
+      id: capText(l.id), attackClassId: capText(l.attackClassId), label: capText(l.label), status: l.status, confidence: l.confidence,
+      leadNote: capText(l.note), rule: l.rule !== undefined ? capText(l.rule) : null,
+      url: l.url !== undefined && l.url.length <= OVERLAY_FIELD_CAP ? l.url : undefined,
+      target: capText(l.target), node: node ? this.brief(l.nodeId) : { id: l.nodeId },
+      evidenceTotal: l.evidence.length, evidenceOffset: offset, evidenceNextOffset: nextOffset, evidence,
+      note: "Leads are hypotheses from an external overlay, never findings." +
+        (nextOffset !== null ? ` More evidence than fit in this page; call again with offset=${nextOffset} for the rest.` : ""),
     };
   }
 

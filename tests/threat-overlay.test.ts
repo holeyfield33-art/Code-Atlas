@@ -201,6 +201,10 @@ try {
   assert.strictEqual(t.leads.length, 1);
   assert.strictEqual(t.leads[0].status, "hypothetical");
   assert.match(t.note, /hypotheses to investigate, not findings/);
+  // ThreatLead.target ("the target string the source gave — kept for audit") was preserved on the
+  // bundle but never surfaced by threats()/threatLeads(), leaving no way to audit the source's
+  // original mapping claim against the resolved node.
+  assert.strictEqual(t.leads[0].target, "src/handler.js#handlePrompt", "threats() includes the lead's original target string, not just the resolved node");
 
   // getNode()'s compact flags must not under-report a lead-only node: a node with no FINDING but
   // an external overlay LEAD should still read as having something flagged, under its own flag
@@ -491,6 +495,32 @@ try {
   const byPath: any = tools.threatLeads({ path: "handler.js" });
   assert.strictEqual(byPath.leads.length, 2, "both L1 and L2 resolve into src/handler.js");
   assert.strictEqual(new AtlasTools(plain).threatLeads().leads.length, 0, "no overlay => empty list, not an error");
+  assert.strictEqual(allLeads.leads.find((l: any) => l.id === "L1").target, "src/handler.js#handlePrompt", "threatLeads() also includes the original target string per lead");
+
+  // --- atlas.lead(id): full detail by id, with evidence PAGINATED past the 50-row cap ----------
+  // threats()/threatLeads() both cap a lead's evidence at EVIDENCE_CAP (50) with no way past it;
+  // lead(id) is the dedicated detail lookup, mirroring finding(id)'s role for findings. Reuse
+  // builtManyEvidence's "L-MANYEV" lead (5,000 evidence rows) from the row-cap test above.
+  const evidenceTools = new AtlasTools(builtManyEvidence.bundle);
+  const leadPage1: any = evidenceTools.lead("L-MANYEV");
+  assert.strictEqual(leadPage1.evidenceTotal, 5_000);
+  assert.strictEqual(leadPage1.evidence.length, 50, "lead() defaults to the same 50-row page size as threats()/threatLeads()");
+  assert.strictEqual(leadPage1.evidenceNextOffset, 50, "nextOffset says where the next page starts");
+  assert.strictEqual(leadPage1.target, "src/handler.js#handlePrompt", "lead() surfaces the original target too");
+  // page through with the max page size (limit is clamped to 1000, same ceiling as threatLeads())
+  // and confirm every one of the 5,000 evidence rows is actually reachable, not just the first
+  const allEvidenceSources = new Set<string>(leadPage1.evidence.map((e: any) => e.source));
+  let evOffset: number | null = leadPage1.evidenceNextOffset;
+  let pages = 1;
+  while (evOffset !== null) {
+    const page: any = evidenceTools.lead("L-MANYEV", { offset: evOffset, limit: 1000 });
+    for (const e of page.evidence) allEvidenceSources.add(e.source);
+    evOffset = page.evidenceNextOffset;
+    pages++;
+  }
+  assert.strictEqual(allEvidenceSources.size, 5_000, "paging with offset reaches every one of the 5,000 evidence rows");
+  assert.ok(pages > 1, "more than one page was needed, so this actually exercised pagination");
+  assert.deepStrictEqual(evidenceTools.lead("nope"), { error: "unknown lead id", id: "nope", hint: "use atlas_threat_leads or atlas.threatLeads({...}) to find an id" }, "an unknown lead id reports an error, not a throw");
 
   // --- threatLeads() pagination: more matches than `limit` must actually be reachable ----------
   const page1: any = manyLeadsTools.threatLeads({ limit: 10 });

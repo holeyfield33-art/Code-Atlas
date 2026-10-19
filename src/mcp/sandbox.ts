@@ -30,7 +30,7 @@ import type { AtlasTools } from "./tools.js";
  *  method that returns JSON-serializable data and never mutates the bundle.
  *  triage is intentionally absent: the sandbox cannot write. */
 const READ_METHODS = [
-  "overview", "search", "getNode", "getSource", "neighbors", "contextPack", "threats", "finding", "findings", "threatLeads", "unresolvedLeads", "routes", "course",
+  "overview", "search", "getNode", "getSource", "neighbors", "contextPack", "threats", "finding", "findings", "lead", "threatLeads", "unresolvedLeads", "routes", "course",
 ] as const;
 type ReadMethod = (typeof READ_METHODS)[number];
 const ALLOWED = new Set<string>(READ_METHODS);
@@ -80,6 +80,7 @@ const BOOTSTRAP = `
       contextPack: (task, budget)=> __call("contextPack", [task, budget]),
       threats:     (ref)         => __call("threats", [ref]),
       finding:     (id)          => __call("finding", [id]),
+      lead:        (id, filter = {}) => __call("lead", [id, filter]),
       // Each of these takes an OPTIONAL filter object on the host side (default {}). JSON.stringify
       // turns a bare \`undefined\` argument into null inside the array ([undefined] -> "[null]"),
       // and the host's JSON.parse hands that literal null straight to the method — bypassing its
