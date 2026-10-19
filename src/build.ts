@@ -164,6 +164,13 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
       bundle.threatOverlay = r.overlay;
       parseBundle(bundle);   // re-validate: every lead must resolve to a node of this graph
       overlay = { attached: true, leads: r.overlay.leads.length, unresolved: r.overlay.unresolved.length, warnings: r.warnings };
+      // r.warnings is a BuildResult-level field, not saved into the bundle file itself — so a
+      // bundle reloaded directly (e.g. by the MCP server via parseBundle, bypassing buildAtlas)
+      // would show unresolvedTotal === MAX_ENTRIES with no sign anything was dropped, if the
+      // truncation warning never reached a field that actually persists. Mirror it into
+      // bundle.diagnostics (which IS part of the saved bundle) so atlas_overview's `coverage`/
+      // diagnostics surface it even outside this one build call.
+      for (const w of r.warnings) if (/dropped/.test(w) && /unresolved/.test(w)) bundle.diagnostics.push({ stage: "threat-overlay", message: w });
     } catch (e) {
       delete bundle.threatOverlay;
       const error = e instanceof Error ? e.message : String(e);

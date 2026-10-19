@@ -359,6 +359,32 @@ try {
   assert.strictEqual(manyLeadsThreats.leadsTotal, 30);
   assert.strictEqual(manyLeadsThreats.leads.length, 30, "under the row cap, nothing is dropped");
 
+  // --- threats() must direct a FINDINGS overflow to somewhere that can actually page through
+  // findings — atlas_threat_leads only paginates LEADS, so pointing a findingsTotal > ROW_CAP
+  // overflow there (as it used to) left those findings with no real way to reach them. -------
+  const manyFindingsBundle = {
+    ...plain,
+    findings: Array.from({ length: 600 }, (_, i) => ({
+      id: `F${i}`, nodeRefs: [fn.id], kind: "weakness" as const, title: `finding ${i}`, explanation: "e",
+      grade: "STATIC" as const, evidence: [{ source: "code-atlas/rule:test", detail: "d" }], blastRadius: [],
+    })),
+  };
+  const manyFindingsTools = new AtlasTools(manyFindingsBundle);
+  const manyFindingsThreats: any = manyFindingsTools.threats(fn.id);
+  assert.strictEqual(manyFindingsThreats.findingsTotal, 600);
+  assert.strictEqual(manyFindingsThreats.findings.length, 500, "findings are row-capped at ROW_CAP (500)");
+  assert.match(manyFindingsThreats.note, /atlas\.findings\(\{path: \.\.\., offset\}\)/, "the overflow note points to findings()'s own pagination, not atlas_threat_leads");
+  assert.doesNotMatch(manyFindingsThreats.note, /Leads row-capped/, "no lead overflow is claimed when only findings overflowed");
+  // and findings() itself must actually be able to page through all 600, via offset/nextOffset
+  const findingsPage1: any = manyFindingsTools.findings({ limit: 500 });
+  assert.strictEqual(findingsPage1.findings.length, 500);
+  assert.strictEqual(findingsPage1.nextOffset, 500, "nextOffset says where the next page starts");
+  const findingsPage2: any = manyFindingsTools.findings({ limit: 500, offset: findingsPage1.nextOffset });
+  assert.strictEqual(findingsPage2.findings.length, 100, "the second page holds the remainder (600 - 500)");
+  assert.strictEqual(findingsPage2.nextOffset, null, "the last page reports no further offset");
+  const allFindingIds = new Set([...findingsPage1.findings.map((f: any) => f.id), ...findingsPage2.findings.map((f: any) => f.id)]);
+  assert.strictEqual(allFindingIds.size, 600, "paging with offset reaches every one of the 600 findings");
+
   // --- resolveOverlay() must keep its OUTPUT unresolved array within the schema's cap, even
   // though the two INPUT arrays it draws from (leads whose target fails to resolve, and explicit
   // unresolved entries) are each independently capped at MAX_ENTRIES — a legitimately-sized overlay
@@ -374,6 +400,18 @@ try {
   assert.strictEqual(combinedOverCap.overlay.unresolved.length, 5_000, "the combined unresolved output is trimmed to the schema's MAX_ENTRIES cap, not left at 6,000");
   assert.ok(combinedOverCap.warnings.some((w) => /dropped/.test(w) && /unresolved/.test(w)), "the truncation is reported as a warning, not silent");
   assert.doesNotThrow(() => parseBundle({ ...plain, threatOverlay: combinedOverCap.overlay }), "the trimmed overlay re-validates cleanly against the bundle schema");
+  // The trim must be PERSISTED on the overlay itself (unresolvedDropped), not just the transient
+  // build-time warning above — a bundle reloaded directly (parseBundle, bypassing buildAtlas)
+  // would otherwise show unresolvedTotal === MAX_ENTRIES with no sign anything was dropped.
+  assert.strictEqual(combinedOverCap.overlay.unresolvedDropped, 1_000, "the true drop count (6,000 - 5,000) is recorded on the overlay");
+  const combinedOverCapTools = new AtlasTools({ ...plain, threatOverlay: combinedOverCap.overlay });
+  const ovCombined: any = combinedOverCapTools.overview();
+  assert.strictEqual(ovCombined.threatOverlay.unresolvedDropped, 1_000, "atlas_overview surfaces the drop count, not just unresolvedTotal");
+  const unresolvedLeadsCombined: any = combinedOverCapTools.unresolvedLeads({ limit: 1 });
+  assert.strictEqual(unresolvedLeadsCombined.unresolvedDropped, 1_000, "atlas_unresolved_leads surfaces the drop count too");
+  assert.match(unresolvedLeadsCombined.note, /1000 additional entries were dropped/, "the note states entries were dropped at build time, not retrievable here");
+  // sanity: when nothing was dropped, the field reads 0/absent, not a stale leftover
+  assert.strictEqual((tools.overview() as any).threatOverlay.unresolvedDropped, 0, "a normal overlay reports unresolvedDropped: 0, not undefined or a leftover count");
 
   // --- the bundle schema itself caps lead/unresolved COUNT, not just build-time OverlayInputSchema --
   // (parseBundle is the path the MCP server actually uses to load a bundle file, bypassing build())

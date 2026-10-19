@@ -167,6 +167,10 @@ export class AtlasTools {
             leads: this.bundle.threatOverlay.leads.length,
             unresolved: this.bundle.threatOverlay.unresolved.slice(0, 50).map(boundUnresolvedEntry),
             unresolvedTotal: this.bundle.threatOverlay.unresolved.length,
+            // unresolvedTotal alone would read as complete even when resolveOverlay() had to trim
+            // the combined (synthesized + explicit) unresolved list to fit the schema's cap —
+            // surface the true drop count so that's never silently mistaken for "everything".
+            unresolvedDropped: this.bundle.threatOverlay.unresolvedDropped ?? 0,
           }
         : null,   // external leads (e.g. ASI); null when none attached. Leads are hypotheses, never findings. Use atlas.threatLeads() to enumerate resolved leads without knowing a node id first.
       coverage: this.bundle.coverage ?? null,   // what the scan omitted, counted by reason (null on older bundles)
@@ -268,7 +272,12 @@ export class AtlasTools {
     return {
       ref, findings: found.slice(0, ROW_CAP), findingsTotal, leads: allLeads.slice(0, ROW_CAP), leadsTotal,
       note: "Leads come from an external overlay and are hypotheses to investigate, not findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Grade reflects how this was verified; a dependency link alone does not establish exploitability. A disposition is a human/agent triage decision and never upgrades the grade." +
-        (leadsTotal > ROW_CAP || findingsTotal > ROW_CAP ? ` Row-capped at ${ROW_CAP}; use atlas_threat_leads with filters to page through the rest.` : ""),
+        // atlas_threat_leads only paginates LEADS; a findings overflow needs findings() (now
+        // itself offset-paginated), reachable via atlas_exec since findings() has no standalone
+        // MCP tool — pointing BOTH kinds of overflow at atlas_threat_leads left findings past the
+        // cap with no actual way to reach them.
+        (findingsTotal > ROW_CAP ? ` Findings row-capped at ${ROW_CAP}; via atlas_exec, call atlas.findings({path: ..., offset}) to page through the rest.` : "") +
+        (leadsTotal > ROW_CAP ? ` Leads row-capped at ${ROW_CAP}; use atlas_threat_leads with filters to page through the rest.` : ""),
     };
   }
 
@@ -313,19 +322,27 @@ export class AtlasTools {
     const limit = Math.min(Math.max(Math.floor(Number(filter.limit) || 50), 1), 1000);
     const offset = Math.max(Math.floor(Number(filter.offset) || 0), 0);
     const all = this.bundle.threatOverlay?.unresolved ?? [];
+    const dropped = this.bundle.threatOverlay?.unresolvedDropped ?? 0;
     const rows = all.slice(offset, offset + limit).map(boundUnresolvedEntry);
     const nextOffset = offset + rows.length < all.length ? offset + rows.length : null;
     return {
-      total: all.length, returned: rows.length, offset, nextOffset, unresolved: rows,
+      total: all.length, unresolvedDropped: dropped, returned: rows.length, offset, nextOffset, unresolved: rows,
       note: "These could not be matched to exactly one component of this graph — unknown, not cleared." +
-        (nextOffset !== null ? ` More entries than fit in this page; call again with offset=${nextOffset} for the rest.` : ""),
+        (nextOffset !== null ? ` More entries than fit in this page; call again with offset=${nextOffset} for the rest.` : "") +
+        // Paging to the end of `total` is NOT "everything": resolveOverlay() may have already
+        // trimmed entries that never made it into the saved bundle at all, past this cap.
+        (dropped > 0 ? ` ${dropped} additional entries were dropped at build time (the combined unresolved list exceeded the overlay's entry cap) and are not retrievable here.` : ""),
     };
   }
 
   /** List findings without knowing a node id or path first (threats() needs one). Compact rows;
-   *  filter by kind, grade, rule id, a path fragment or disposition. Read-only. */
-  findings(filter: { kind?: string; grade?: string; rule?: string; path?: string; triaged?: boolean; limit?: number } = {}) {
+   *  filter by kind, grade, rule id, a path fragment or disposition; page with offset/nextOffset —
+   *  threats() directs callers with more than ROW_CAP findings on one ref here (filtered by
+   *  `path`), so it needs the same offset pagination atlas_threat_leads/atlas_unresolved_leads
+   *  already have, not just a `limit`. Read-only. */
+  findings(filter: { kind?: string; grade?: string; rule?: string; path?: string; triaged?: boolean; limit?: number; offset?: number } = {}) {
     const limit = Math.min(Math.max(Math.floor(Number(filter.limit) || 200), 1), 1000);
+    const offset = Math.max(Math.floor(Number(filter.offset) || 0), 0);
     const rows: any[] = []; let total = 0;
     for (const f of this.bundle.findings ?? []) {
       const rule = (f.evidence[0]?.source ?? "").replace("code-atlas/rule:", "");
@@ -335,10 +352,16 @@ export class AtlasTools {
       if (filter.rule && !rule.includes(filter.rule)) continue;
       if (filter.path && !(node?.evidence.path ?? "").includes(filter.path)) continue;
       if (filter.triaged !== undefined && Boolean(f.disposition) !== filter.triaged) continue;
-      total++;
-      if (rows.length < limit) rows.push({ id: f.id, kind: f.kind, grade: f.grade, rule, title: f.title, node: node ? this.brief(node.id) : null, disposition: f.disposition?.status ?? null });
+      const i = total++;
+      if (i < offset || rows.length >= limit) continue;
+      rows.push({ id: f.id, kind: f.kind, grade: f.grade, rule, title: f.title, node: node ? this.brief(node.id) : null, disposition: f.disposition?.status ?? null });
     }
-    return { total, returned: rows.length, findings: rows, note: "Static leads unless graded OBSERVED/TESTED. Use atlas_threats(id) for the explanation and blast radius." };
+    const nextOffset = offset + rows.length < total ? offset + rows.length : null;
+    return {
+      total, returned: rows.length, offset, nextOffset, findings: rows,
+      note: "Static leads unless graded OBSERVED/TESTED. Use atlas_threats(id) for the explanation and blast radius." +
+        (nextOffset !== null ? ` More match than fit in this page; call again with offset=${nextOffset} for the rest.` : ""),
+    };
   }
 
   /** HTTP routes found in code (method, path template, handler), optionally filtered. A static reading: see routes.ts. */

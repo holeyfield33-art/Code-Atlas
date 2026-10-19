@@ -268,6 +268,13 @@ export const ThreatOverlaySchema = z.object({
   source: z.object({ identity: z.string(), ref: z.string(), asOf: z.string() }),
   leads: z.array(ThreatLeadSchema).max(MAX_OVERLAY_ENTRIES),
   unresolved: z.array(UnresolvedLeadSchema).max(MAX_OVERLAY_ENTRIES),
+  // `unresolved` is synthesized from TWO independently-capped input arrays (unresolvable lead
+  // targets + explicit unresolved entries), so resolveOverlay() can end up trimming it to fit this
+  // schema's own MAX_OVERLAY_ENTRIES cap. That trim must be PERSISTED here, in the saved bundle —
+  // not just in the transient build-time warning — or a bundle reloaded directly (parseBundle,
+  // bypassing buildAtlas) reports unresolvedTotal === MAX_OVERLAY_ENTRIES with no sign anything
+  // was dropped, and a caller paging via atlas_unresolved_leads would believe it saw everything.
+  unresolvedDropped: z.number().int().min(0).optional(),
 });
 export type ThreatLead = z.infer<typeof ThreatLeadSchema>;
 export type UnresolvedLead = z.infer<typeof UnresolvedLeadSchema>;

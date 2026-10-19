@@ -168,12 +168,15 @@ export function resolveOverlay(graph: AtlasGraph, raw: unknown): ResolvedOverlay
   // the WHOLE overlay — leads included — over a diagnostics-only array being too long. `unresolved`
   // entries are diagnostics, not security findings, so truncating them (and saying so) is the right
   // trade: it keeps every resolved LEAD intact rather than losing everything.
+  let unresolvedDropped: number | undefined;
   if (unresolved.length > MAX_ENTRIES) {
-    const dropped = unresolved.length - MAX_ENTRIES;
+    unresolvedDropped = unresolved.length - MAX_ENTRIES;
     unresolved.length = MAX_ENTRIES;
-    warnings.push(`${dropped} unresolved entries dropped: synthesized (unresolvable lead targets) + explicit unresolved entries exceeded the ${MAX_ENTRIES}-entry output cap`);
+    warnings.push(`${unresolvedDropped} unresolved entries dropped: synthesized (unresolvable lead targets) + explicit unresolved entries exceeded the ${MAX_ENTRIES}-entry output cap`);
   }
-  return { overlay: { source: input.source, leads, unresolved }, warnings };
+  // Persisted on the overlay itself (not just the transient build-time warning above), so a bundle
+  // reloaded directly still reports the true drop count via atlas_overview/atlas_unresolved_leads.
+  return { overlay: { source: input.source, leads, unresolved, ...(unresolvedDropped ? { unresolvedDropped } : {}) }, warnings };
 }
 
 /** Read an overlay document from a file path or an http(s) URL. Bounded in size and time. */
