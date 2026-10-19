@@ -47,7 +47,11 @@ function boundLeadText(l: ThreatLead): Pick<ThreatLead, "id" | "attackClassId" |
   return {
     id: capText(l.id), attackClassId: capText(l.attackClassId),
     label: capText(l.label), note: capText(l.note), rule: l.rule !== undefined ? capText(l.rule) : undefined,
-    url: l.url !== undefined ? capText(l.url) : undefined,
+    // A truncated url (capText's slice+"…") is a DIFFERENT address that still looks like the
+    // source's own reference — a caller that follows or cites it lands somewhere else entirely.
+    // That's worse than omitting it, so an oversized url is dropped outright instead of mutated
+    // (same fix as the viewer's leadCard(), which hit the identical problem one field cap earlier).
+    url: l.url !== undefined && l.url.length <= OVERLAY_FIELD_CAP ? l.url : undefined,
     evidence: l.evidence.slice(0, EVIDENCE_CAP).map((e) => ({ source: capText(e.source), detail: capText(e.detail) })),
     evidenceTotal: l.evidence.length,
   };

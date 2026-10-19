@@ -269,6 +269,24 @@ try {
   assert.ok(hugeIdRuleListLead.attackClassId.length < 1000, "threatLeads() bounds a lead's attackClassId the same way");
   assert.ok(hugeIdRuleListLead.rule.length < 1000, "threatLeads() bounds a lead's rule the same way");
 
+  // --- an oversized url must be OMITTED, not truncated: a truncated url (capText's slice+"…")
+  // is a DIFFERENT address that still looks like the source's own reference — a caller that
+  // follows or cites it lands somewhere else entirely, which is worse than no url at all. -------
+  const hugeUrlDoc = doc({ leads: [{
+    id: "L-URL", attackClassId: "AAC-01", label: "x", target: "src/handler.js#handlePrompt",
+    status: "hypothetical", note: "n", url: "https://example.test/" + "q".repeat(1_000),
+  }] });
+  const hugeUrlFile = join(root, "huge-url-overlay.json");
+  writeFileSync(hugeUrlFile, JSON.stringify(hugeUrlDoc));
+  const builtHugeUrl = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: hugeUrlFile });
+  const hugeUrlThreatsLead = (new AtlasTools(builtHugeUrl.bundle).threats(fn.id) as any).leads[0];
+  assert.strictEqual(hugeUrlThreatsLead.url, null, "threats() omits an oversized url rather than returning a truncated (different) address");
+  const hugeUrlListLead = (new AtlasTools(builtHugeUrl.bundle).threatLeads() as any).leads[0];
+  assert.strictEqual(hugeUrlListLead.url, null, "threatLeads() omits an oversized url the same way");
+  // a normal-size url (the default doc()'s L1) still comes through untouched, not dropped
+  const normalUrlLead = (tools.threats(fn.id) as any).leads.find((l: any) => l.id === "L1");
+  assert.strictEqual(normalUrlLead.url, "https://example.test/AAC-01", "a url within bound is passed through unmodified");
+
   // --- unresolvedLeads(): everything past overview()'s 50-row summary must still be reachable ----
   // (threatLeads() explicitly excludes unresolved entries since they have no node; the viewer's
   // own panel is bounded too — this is the only paginated path to the full unresolved list)

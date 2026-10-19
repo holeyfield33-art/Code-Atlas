@@ -147,7 +147,7 @@ Agent config:
     "args": ["--bundle", "atlas/atlas.bundle.json"] } } }
 ```
 
-Tools (nine read-only; `atlas_triage` is the one write tool):
+Tools (eleven read-only; `atlas_triage` is the one write tool):
 
 | Tool | Returns |
 |---|---|
@@ -158,6 +158,8 @@ Tools (nine read-only; `atlas_triage` is the one write tool):
 | `atlas_neighbors` | callers / callees / imports — traverse without source |
 | `atlas_context_pack` | Horos-style: a task → the minimal source-backed set + a replayable receipt |
 | `atlas_threats` | findings (grade + ASI ref + any triage disposition) for a node or file, plus any external overlay `leads` (hypotheses) |
+| `atlas_threat_leads` | resolved overlay leads without knowing a node id first — filter by attack class/status/confidence/path, paginate with `offset` |
+| `atlas_unresolved_leads` | overlay entries that couldn't be matched to exactly one node, paginated — `atlas_overview`'s copy is capped at 50 |
 | `atlas_course` | the lesson + Break & Fix for a node |
 | `atlas_exec` | run JS against a frozen read-only `atlas` API in a sandboxed isolate — one programmable tool for any filter/join/aggregate (see below) |
 | `atlas_triage` | record a disposition on a finding (`confirmed` / `false_positive` / `accepted_risk`) — the one **write** tool; persists to the bundle, never upgrades a grade |
