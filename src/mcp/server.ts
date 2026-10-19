@@ -112,7 +112,7 @@ export function buildServer(ctx: AtlasCtx, opts: BuildServerOptions = {}): McpSe
     async ({ task, budgetTokens }) => ok(ctx.tools.contextPack(task, budgetTokens)));
 
   server.registerTool("atlas_threats",
-    { title: "Threats for a component", description: "Findings (with grade, ASI reference, and any triage disposition) on a node id or file path. Grade reflects how it was verified; absence is not proof of safety.", inputSchema: { ref: z.string() }, annotations: RO },
+    { title: "Threats for a component", description: "Findings (with grade, ASI reference, and any triage disposition) on a node id or file path, plus any external overlay `leads` (hypotheses, never findings). Grade reflects how it was verified; absence is not proof of safety.", inputSchema: { ref: z.string() }, annotations: RO },
     async ({ ref }) => ok(ctx.tools.threats(ref)));
 
   server.registerTool("atlas_course",

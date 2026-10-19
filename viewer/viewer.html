@@ -16,6 +16,7 @@
     --k-contains:#5a6b7d; --k-imports:#6aa2ff; --k-calls:#57c98a;
     --grade-red:#e5484d; --grade-yellow:#e0a356; --grade-green:#57c98a; --grade-gray:#56657a;
     --grade-lead:#8b7fb8;             /* unverified static lead — muted, subordinate to red */
+    --lead-ext:#e05fb4;               /* external threat-overlay lead (hypothesis) - distinct from graded findings */
     --grade-control:#6f9e8c;          /* control PRESENT but unverified — muted, subordinate to green */
     --radius:10px; --rail-h:112px;
     --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -27,6 +28,7 @@
     --fg:#141b24; --fg-dim:#45586b; --fg-faint:#7488a0;
     --accent:#0f9a93; --file:#b9751f; --func:#1f73c4;
     --k-contains:#8a99a9; --k-imports:#2f6fd0; --k-calls:#2f9c63;
+    --lead-ext:#b83b8e;
     color-scheme:light;
   }
   @media (prefers-color-scheme:light){
@@ -213,6 +215,16 @@
   .legend b{color:var(--fg-dim);font-weight:500}
   .legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
   .legend .ln{width:16px;height:0;border-top:2px solid;display:inline-block;margin-right:5px;vertical-align:middle}
+  .legend button.unres-chip{font:inherit;color:var(--fg-dim);background:transparent;border:1px dashed var(--fg-faint);border-radius:999px;padding:1px 9px;cursor:pointer}
+  .legend button.unres-chip[aria-expanded="true"]{border-style:solid;color:var(--fg)}
+  .tm-panel{position:absolute;left:max(16px,env(safe-area-inset-left,0px));bottom:64px;z-index:5;width:min(420px,90vw);max-height:46vh;overflow:auto;
+    background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--fg-dim)}
+  .tm-panel h3{margin:0 0 6px;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:var(--fg)}
+  .tm-panel .row{border-top:1px solid var(--edge);padding:7px 0}
+  .tm-panel code{font-family:var(--mono);font-size:11px;color:var(--fg)}
+  .lead-card{border:1px solid var(--edge);border-left:3px solid var(--lead-ext);border-radius:0 8px 8px 0;background:var(--panel-2);padding:10px 12px;margin:0 0 10px}
+  .lead-pill{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:#fff;background:var(--lead-ext);border-radius:999px;padding:2px 8px}
+  .lead-card.refuted{opacity:.6}
   .footmark{position:absolute;right:max(16px,env(safe-area-inset-right,0px));bottom:16px;z-index:4;
     font-family:var(--mono);font-size:10px;color:var(--fg-faint);text-align:right;pointer-events:none}
   .empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--fg-faint);
@@ -254,6 +266,7 @@
         <button data-mode="architecture" aria-pressed="true"><span class="n">01</span> Architecture</button>
         <button data-mode="learn" aria-pressed="false"><span class="n">02</span> Learn</button>
         <button data-mode="security" aria-pressed="false"><span class="n">03</span> Security</button>
+        <button data-mode="threatmap" aria-pressed="false"><span class="n">04</span> Threat Map</button>
       </div>
       <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Find a file or function…" autocomplete="off" aria-label="Search components"></label>
       <div class="filters" id="filters" aria-label="Edge filters">
@@ -430,8 +443,9 @@ function normalize(input){
   const course = (input && input.course) || null;
   const findings = (input && input.findings) || null;
   const asi = (input && input.asiSnapshot) || null;
+  const overlay = (input && input.threatOverlay) || null;
   const sources = (input && input.sources) || null;
-  return { graph, label, productName:name, course, findings, asi, sources, revision:(input&&input.repository&&input.repository.revision)||graph.revision||"" };
+  return { graph, label, productName:name, course, findings, asi, overlay, sources, revision:(input&&input.repository&&input.repository.revision)||graph.revision||"" };
 }
 
 const KIND_COLOR = k => k==="file" ? css("--file") : css("--func");
@@ -443,7 +457,8 @@ const state = {
   mode:"architecture", filters:{contains:true,imports:true,calls:true}, isSample:true,
   detail:"full", expanded:new Set(), shownNodes:0,   // bounded-loading: file-level collapse for large graphs
   course:null, lessons:new Map(), completed:new Set(),
-  findingByNode:new Map(), blast:new Set(), asi:null, hasFindings:false, sources:new Map()
+  findingByNode:new Map(), blast:new Set(), asi:null, hasFindings:false, sources:new Map(),
+  overlay:null, leadsByNode:new Map(), leadFiles:new Set(), showUnresolved:false
 };
 // Collapse to a file-level view automatically once the full graph gets big
 // enough that rendering/simulating every node would lag.
@@ -480,6 +495,26 @@ function gradeOf(nodeId){
   }
   if(state.blast.has(nodeId)) return "yellow";
   return "gray";
+}
+/* ---- Threat overlay: external leads (hypotheses) resolved onto this graph. ----
+   Leads never feed the Security grades; they only mark nodes in the Threat Map view. */
+function buildOverlay(overlay){
+  state.overlay = overlay && Array.isArray(overlay.leads) ? overlay : null;
+  state.leadsByNode = new Map(); state.leadFiles = new Set(); state.showUnresolved = false;
+  if(!state.overlay) return;
+  for(const l of state.overlay.leads){
+    if(!state.byId.has(l.nodeId)) continue;   // a lead for a node not in this graph is ignored, never drawn
+    if(!state.leadsByNode.has(l.nodeId)) state.leadsByNode.set(l.nodeId, []);
+    state.leadsByNode.get(l.nodeId).push(l);
+    const nb = state.nbr && state.nbr.get(l.nodeId);
+    const fileId = nb && nb.container ? nb.container : (state.byId.get(l.nodeId).kind==="file" ? l.nodeId : null);
+    if(fileId) state.leadFiles.add(fileId);
+  }
+}
+function leadOn(id){
+  if(state.leadsByNode.has(id)) return true;
+  const n = state.byId.get(id);   // a collapsed file stands in for the functions it hides
+  return !!(n && n.kind==="file" && state.detail==="files" && !state.expanded.has(id) && state.leadFiles.has(id));
 }
 const DISMISSED = f => f.disposition && f.disposition.status==="false_positive";
 const ACCEPTED  = f => f.disposition && f.disposition.status==="accepted_risk";
@@ -758,6 +793,11 @@ function fgData(){
 }
 
 function nodeColor(node){
+  if(state.mode==="threatmap"){
+    if(state.selected===node.id) return css("--accent");
+    // mixHex (a real colour), not dim(): the 3D engine cannot parse a CSS color-mix() string and would paint the node black
+    return leadOn(node.id) ? css("--lead-ext") : mixHex(KIND_COLOR(node.kind), css("--bg"), 0.55);
+  }
   if(state.mode==="security") return css(state.hasFindings ? GRADECSS[gradeOf(node.id)] : "--grade-gray");
   if(state.mode==="learn" && state.selected){
     const near = neighborsOf(state.selected);
@@ -909,9 +949,10 @@ function openInspector(id){
   const dot = document.getElementById("inspDot");
   dot.style.background = state.mode==="security"
     ? css(state.hasFindings ? GRADECSS[gradeOf(n.id)] : "--grade-gray")
-    : KIND_COLOR(n.kind);
+    : (state.mode==="threatmap" && leadOn(n.id) ? css("--lead-ext") : KIND_COLOR(n.kind));
 
   const security = state.mode==="security";
+  const threatmap = state.mode==="threatmap";
   const role = roleText(n);
   const body = `
     <p class="plain">${esc(plainText(n))}</p>
@@ -920,6 +961,7 @@ function openInspector(id){
     <div class="connects"><h3>Connected components</h3>${connRows(n)}</div>
     ${sourceSection(n)}
     ${security?securitySection(n):""}
+    ${threatmap?threatMapSection(n):""}
     <div class="lessons"><h3>Course</h3><div id="lessonSlot"></div></div>
     <div class="evidence" id="evidence">
       <div class="ev-toggle" id="evToggle" role="button" tabindex="0" aria-expanded="false">
@@ -1086,6 +1128,42 @@ function securitySection(n){
   return `<div class="note security"><b>No finding on this component.</b> It was not flagged by the attached findings. Absence of a finding is not proof of safety.</div>`;
 }
 
+/* ---- Threat Map: external leads on this component ------------------------*/
+const LEAD_LABEL = { hypothetical:"HYPOTHETICAL LEAD", inferred:"INFERRED LEAD", observed:"REPORTED OBSERVED", verified:"REPORTED VERIFIED", refuted:"REFUTED" };
+function safeHref(u){ return /^https?:\/\//i.test(u||"") ? encodeURI(u) : null; }
+function leadCard(l){
+  const href = safeHref(l.url);
+  const ev = (l.evidence||[]).map(e=>`<li><b>${esc(e.source)}</b> ${esc(e.detail)}</li>`).join("");
+  const untested = (l.status==="hypothetical"||l.status==="inferred") ? `<p class="sec-note"><b>Still needs testing:</b> nothing here has reproduced this. Trace the call path above and confirm at runtime before treating it as a finding.</p>` : "";
+  return `<div class="lead-card ${l.status==="refuted"?"refuted":""}">
+    <div class="sec-head"><span class="lead-pill">${esc(LEAD_LABEL[l.status]||l.status)}</span><span class="grade-ev">${esc(l.confidence)} confidence</span></div>
+    <p class="sec-title">${esc(l.attackClassId)} · ${href?`<a class="asi-a" href="${href}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`:esc(l.label)}</p>
+    <p class="sec-expl">${esc(l.note)}</p>
+    ${l.rule?`<p class="sec-note">Mapping rule: <code>${esc(l.rule)}</code></p>`:""}
+    ${ev?`<ul class="sec-note">${ev}</ul>`:""}
+    ${untested}</div>`;
+}
+function threatMapSection(n){
+  const o = state.overlay;
+  if(!o){
+    return `<div class="note security"><b>No threat overlay attached.</b> Nothing in this view is assessed. Build with <code>--asi-overlay</code> to attach external leads; see docs/threat-overlay.md.</div>`;
+  }
+  const own = state.leadsByNode.get(n.id) || [];
+  const members = n.kind==="file" ? [...state.leadsByNode.entries()].filter(([id])=>{ const nb=state.nbr.get(id); return nb && nb.container===n.id; }) : [];
+  const stamp = `<p class="asi-stamp">Source: ${esc(o.source.identity)} @ ${esc(o.source.ref)} · as of ${esc(o.source.asOf)}. A lead is a hypothesis to investigate, not proof of a vulnerability.</p>`;
+  if(!own.length && !members.length){
+    return `<div class="note security"><b>No lead on this component.</b> The overlay source reported nothing here. Absence of a lead is not proof of safety.</div>${stamp}`;
+  }
+  const memberRows = members.length
+    ? `<div class="conn-row"><span class="lab">leads in this file</span><span class="vals">${members.map(([id,ls])=>`<b data-goto="${esc(id)}">${esc(labelFor(id))}</b> (${ls.length})`).join(", ")}</span></div>` : "";
+  return `<div class="sec">${own.map(leadCard).join("")}${memberRows}${stamp}</div>`;
+}
+function unresolvedPanel(){
+  const o = state.overlay; if(!o || !state.showUnresolved) return "";
+  const rows = (o.unresolved||[]).map(u=>`<div class="row"><code>${esc(u.attackClassId)}</code> · ${esc(u.description)}<br><span style="color:var(--fg-faint)">${u.target?`target <code>${esc(u.target)}</code> · `:""}${esc(u.reason)}</span></div>`).join("");
+  return `<div class="tm-panel" role="region" aria-label="Unresolved leads"><h3>Unresolved (${(o.unresolved||[]).length})</h3><p>These could not be placed on exactly one component of this graph. They are unknown, not cleared.</p>${rows||"<p>None.</p>"}</div>`;
+}
+
 /* ---- grounded Break & Fix -------------------------------------------------*/
 /* regex checks are NOT executed: a caller-supplied pattern on a learner answer
    is an unbounded backtracking (ReDoS) surface with no safe bound in a standalone
@@ -1215,6 +1293,7 @@ function loadGraph(raw, {sample=false}={}){
   state.sources = new Map(((norm.sources)||[]).map(s=>[s.path,s.code]));
   state.truncatedSources = new Set(((norm.sources)||[]).filter(s=>s.truncated).map(s=>s.path));
   buildFindings(norm.findings);
+  buildOverlay(norm.overlay);
   loadDone();
   state.exploreProject = sample ? "sample" : (norm.label || norm.revision || "g");
   state.nodeObjs = null; state.drawn = new Set();
@@ -1306,6 +1385,22 @@ function applyMode(m){
 }
 function updateLegend(){
   const el=document.getElementById("legend"); if(!el) return;
+  const old = document.getElementById("tmPanel"); if(old) old.remove();
+  if(state.mode==="threatmap"){
+    const o = state.overlay;
+    el.innerHTML = o
+      ? `<span><i style="background:var(--file)"></i><b>code structure</b></span>
+         <span><i class="sq" style="background:var(--lead-ext)"></i><b>security lead (hypothesis)</b></span>
+         <button class="unres-chip" id="unresBtn" aria-expanded="${state.showUnresolved}">unresolved (${(o.unresolved||[]).length})</button>`
+      : `<span><i class="sq" style="background:var(--grade-gray)"></i><b>no threat overlay attached</b></span>`;
+    const btn = document.getElementById("unresBtn");
+    if(btn) btn.addEventListener("click",()=>{ state.showUnresolved=!state.showUnresolved; updateLegend(); });
+    if(o && state.showUnresolved){
+      const host = document.createElement("div"); host.id="tmPanel"; host.innerHTML = unresolvedPanel();
+      el.parentNode.appendChild(host);
+    }
+    return;
+  }
   if(state.mode==="security"){
     el.innerHTML = state.hasFindings
       ? `<span><i class="sq" style="background:var(--grade-red)"></i><b>weakness</b></span>

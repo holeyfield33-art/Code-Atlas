@@ -7,7 +7,7 @@
  * a replayable receipt.
  */
 import { createHash } from "node:crypto";
-import type { AtlasBundle, AtlasNode } from "../schema.js";
+import type { AtlasBundle, AtlasNode, ThreatLead } from "../schema.js";
 import { castsBlastAfterTriage } from "../triage.js";
 
 const sha = (s: string) => "sha256:" + createHash("sha256").update(s).digest("hex").slice(0, 16);
@@ -26,6 +26,7 @@ export function bundleId(bundle: AtlasBundle): string {
     coverage: bundle.coverage ?? null,   // overview() exposes scan coverage
     sources: bundle.sources ?? null,
     findings: bundle.findings ?? null,
+    threatOverlay: bundle.threatOverlay ?? null,   // overview()/threats() surface it, so receipts must move with it
     course: bundle.course ?? null,
   };
   return "sha256:" + createHash("sha256").update(JSON.stringify(visible)).digest("hex").slice(0, 16);
@@ -40,6 +41,7 @@ export class AtlasTools {
   private importsOut = new Map<string, string[]>();
   private containerOf = new Map<string, string>();
   private findingsByNode = new Map<string, any[]>();
+  private leadsByNode = new Map<string, ThreatLead[]>();
   private lessonByNode = new Map<string, any>();
   private inferredCall = new Set<string>();                    // `${from}->${to}` for name-inferred calls
 
@@ -58,6 +60,7 @@ export class AtlasTools {
       else if (e.kind === "imports") push(this.importsOut, e.from, e.to);
       else if (e.kind === "contains") this.containerOf.set(e.to, e.from);
     }
+    for (const l of bundle.threatOverlay?.leads ?? []) push(this.leadsByNode, l.nodeId, l);
     for (const f of bundle.findings ?? []) for (const ref of f.nodeRefs) push(this.findingsByNode, ref, f);
     // Same join as the viewer: the defect's own node first, then every taught node.
     const lessons = bundle.course?.lessons ?? [];
@@ -106,6 +109,9 @@ export class AtlasTools {
       findingsByKind: tally(findings.map((f) => f.kind)),
       findingsByGrade: tally(findings.map((f) => f.grade)),
       findingsByDisposition: tally(findings.map((f) => f.disposition?.status ?? "untriaged")),
+      threatOverlay: this.bundle.threatOverlay
+        ? { source: this.bundle.threatOverlay.source, leads: this.bundle.threatOverlay.leads.length, unresolved: this.bundle.threatOverlay.unresolved.slice(0, 50), unresolvedTotal: this.bundle.threatOverlay.unresolved.length }
+        : null,   // external leads (e.g. ASI); null when none attached. Leads are hypotheses, never findings.
       coverage: this.bundle.coverage ?? null,   // what the scan omitted, counted by reason (null on older bundles)
       entryPoints,
       note: "Every edge is source-backed; unresolved relationships are diagnostics, never fabricated. `coverage` reports what the scan omitted (unsupported / too large / over the file cap), so absence of a node is not absence from the repo. Use atlas_get_source to read code only when needed.",
@@ -184,7 +190,11 @@ export class AtlasTools {
       asiRef: f.asiRef ?? null,
       disposition: f.disposition ?? null,
     });
-    return { ref, findings: found, note: "Grade reflects how this was verified; a dependency link alone does not establish exploitability. A disposition is a human/agent triage decision and never upgrades the grade." };
+    const leads = ids.flatMap((id) => (this.leadsByNode.get(id) ?? []).map((l) => ({
+      id: l.id, attackClassId: l.attackClassId, label: l.label, status: l.status, confidence: l.confidence,
+      note: l.note, rule: l.rule ?? null, url: l.url ?? null, evidence: l.evidence, node: this.brief(id),
+    })));
+    return { ref, findings: found, leads, note: "Leads come from an external overlay and are hypotheses to investigate, not findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Grade reflects how this was verified; a dependency link alone does not establish exploitability. A disposition is a human/agent triage decision and never upgrades the grade." };
   }
 
   /** List findings without knowing a node id or path first (threats() needs one). Compact rows;

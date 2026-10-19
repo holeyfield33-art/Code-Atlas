@@ -225,6 +225,42 @@ export const AsiSnapshotSchema = z.object({
   classes: z.array(z.object({ id: z.string(), label: z.string(), mitigation: z.string(), url: z.string() })),
 });
 
+/** Threat-overlay layer: security LEADS reported by an external source (e.g. the
+ *  ASI Threat Graph service) and resolved onto nodes of THIS graph. The overlay
+ *  annotates the graph Code Atlas already owns; it never adds nodes or edges, and
+ *  it never colours a node as a verified weakness - only a finding graded
+ *  OBSERVED/TESTED on this repo can do that. A lead whose target cannot be
+ *  matched to exactly one node is kept as `unresolved`, never guessed. */
+export const LeadStatusSchema = z.enum(["hypothetical", "inferred", "observed", "verified", "refuted"]);
+export const ThreatLeadSchema = z.object({
+  id: z.string(),
+  attackClassId: z.string(),                 // e.g. an ASI attack-class id
+  label: z.string(),                         // one-line class name from the source
+  nodeId: z.string(),                        // resolved Atlas node id (exactly one match)
+  target: z.string(),                        // the target string the source gave (kept for audit)
+  status: LeadStatusSchema,                  // as REPORTED by the source, never upgraded here
+  confidence: z.enum(["low", "medium", "high"]),
+  note: z.string(),
+  rule: z.string().optional(),               // the source's mapping rule, when it names one
+  url: z.string().optional(),                // http(s) link to the source's page for this class
+  evidence: z.array(z.object({ source: z.string(), detail: z.string() })).default([]),
+});
+export const UnresolvedLeadSchema = z.object({
+  id: z.string(),
+  attackClassId: z.string(),
+  description: z.string(),
+  target: z.string().optional(),
+  reason: z.string(),                        // why it has no node: not found / ambiguous / reported unresolved
+});
+export const ThreatOverlaySchema = z.object({
+  source: z.object({ identity: z.string(), ref: z.string(), asOf: z.string() }),
+  leads: z.array(ThreatLeadSchema),
+  unresolved: z.array(UnresolvedLeadSchema),
+});
+export type ThreatLead = z.infer<typeof ThreatLeadSchema>;
+export type UnresolvedLead = z.infer<typeof UnresolvedLeadSchema>;
+export type ThreatOverlay = z.infer<typeof ThreatOverlaySchema>;
+
 /* ========================================================================== *
  * 4. BUNDLE  (top-level — assembles everything)
  * ========================================================================== */
@@ -256,6 +292,7 @@ export const AtlasBundleSchema = z.object({
   findings: z.array(FindingSchema).optional(),      // Security layer (absent => all GRAY)
   routes: z.array(RouteSchema).optional(),          // HTTP routes found in JS/TS code (absent on older bundles)
   asiSnapshot: AsiSnapshotSchema.optional(),        // pinned ASI classes referenced by findings
+  threatOverlay: ThreatOverlaySchema.optional(),     // external security leads resolved onto this graph (absent => none attached)
   // inlined source for the viewer (offline). `truncated`: only a prefix of the file
   // is inlined (the build caps size), so nodes past the cap have no inlined source.
   sources: z.array(z.object({ path: z.string(), code: z.string(), truncated: z.boolean().optional() })).optional(),
@@ -337,6 +374,15 @@ export function parseBundle(input: unknown): AtlasBundle {
       // If an ASI snapshot is present, a referenced class must be in it (snapshot stays consistent).
       if (f.asiRef && classIds.size && !classIds.has(f.asiRef.id))
         throw new Error(`Finding ${f.id} cites ASI class '${f.asiRef.id}' absent from the snapshot`);
+    }
+  }
+  if (bundle.threatOverlay) {
+    const seen = new Set<string>();
+    for (const l of bundle.threatOverlay.leads) {
+      if (!nodeIds.has(l.nodeId)) throw new Error(`Threat lead ${l.id} nodeId '${l.nodeId}' not in graph`);
+      if (seen.has(l.id)) throw new Error(`Duplicate threat lead id ${l.id}`);
+      seen.add(l.id);
+      if (l.url !== undefined && !/^https?:\/\//i.test(l.url)) throw new Error(`Threat lead ${l.id} url must be http(s)`);
     }
   }
   return bundle;

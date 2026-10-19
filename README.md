@@ -157,7 +157,7 @@ Tools (nine read-only; `atlas_triage` is the one write tool):
 | `atlas_get_source` | one node's source — pulled only when needed |
 | `atlas_neighbors` | callers / callees / imports — traverse without source |
 | `atlas_context_pack` | Horos-style: a task → the minimal source-backed set + a replayable receipt |
-| `atlas_threats` | findings (grade + ASI ref + any triage disposition) for a node or file |
+| `atlas_threats` | findings (grade + ASI ref + any triage disposition) for a node or file, plus any external overlay `leads` (hypotheses) |
 | `atlas_course` | the lesson + Break & Fix for a node |
 | `atlas_exec` | run JS against a frozen read-only `atlas` API in a sandboxed isolate — one programmable tool for any filter/join/aggregate (see below) |
 | `atlas_triage` | record a disposition on a finding (`confirmed` / `false_positive` / `accepted_risk`) — the one **write** tool; persists to the bundle, never upgrades a grade |
