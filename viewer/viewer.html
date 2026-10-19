@@ -735,6 +735,11 @@ function goTo(id){
   const wasDrawn = state.drawn && state.drawn.has(id);
   ensureVisible(id);
   openInspector(id);
+  // Clicking a row in the "not drawn" panel pin-rescues that node (openInspector's render()
+  // branch, since wasDrawn was false going in), which changes state.drawn — refresh the legend
+  // so the panel drops the now-visible node and its count, instead of going stale until some
+  // unrelated action rebuilds it.
+  updateLegend();
   setTimeout(()=>focusNode(id), wasDrawn ? 0 : 900);   // a newly drawn node has no position until the layout settles
 }
 
@@ -1214,7 +1219,10 @@ function threatMapSection(n){
   }
   const own = state.leadsByNode.get(n.id) || [];
   const members = n.kind==="file" ? [...state.leadsByNode.entries()].filter(([id])=>{ const nb=state.nbr.get(id); return nb && nb.container===n.id; }) : [];
-  const stamp = `<p class="asi-stamp">Source: ${esc(o.source.identity)} @ ${esc(o.source.ref)} · as of ${esc(o.source.asOf)}. A lead is a hypothesis to investigate, not proof of a vulnerability.</p>`;
+  // source.identity/ref/asOf are untrusted overlay text like everything else here (up to the
+  // 5MB document limit on any one field) — this stamp renders on EVERY component in Threat Map
+  // mode, including one with no leads, so it needs the same clip the per-lead fields already get.
+  const stamp = `<p class="asi-stamp">Source: ${esc(clip(o.source.identity, LEAD_TEXT_CAP))} @ ${esc(clip(o.source.ref, LEAD_TEXT_CAP))} · as of ${esc(clip(o.source.asOf, LEAD_TEXT_CAP))}. A lead is a hypothesis to investigate, not proof of a vulnerability.</p>`;
   if(!own.length && !members.length){
     return `<div class="note security"><b>No lead on this component.</b> The overlay source reported nothing here. Absence of a lead is not proof of safety.</div>${stamp}`;
   }

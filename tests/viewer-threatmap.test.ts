@@ -60,7 +60,7 @@ assert.match(bigCard, /4980 more evidence/, "the omitted count is stated");
 const LEAD_CARDS_SHOWN_SRC = grab(/const LEAD_CARDS_SHOWN\s*=\s*\d+;/);
 const MEMBER_LEADS_SHOWN_SRC = grab(/const MEMBER_LEADS_SHOWN\s*=\s*\d+;/);
 const secSrc = grab(/function threatMapSection\(n\)\{[\s\S]*?\n\}/);
-const mk = (state: any) => new Function("state", "esc", "leadCard", "labelFor", LEAD_CARDS_SHOWN_SRC + ";" + MEMBER_LEADS_SHOWN_SRC + ";" + secSrc + "; return threatMapSection;")(state, esc, leadCard, (id: string) => id) as (n: any) => string;
+const mk = (state: any) => new Function("state", "esc", "leadCard", "labelFor", LEAD_CARDS_SHOWN_SRC + ";" + MEMBER_LEADS_SHOWN_SRC + ";" + LEAD_TEXT_CAP_SRC + ";" + clipSrcForCard + ";" + secSrc + "; return threatMapSection;")(state, esc, leadCard, (id: string) => id) as (n: any) => string;
 assert.match(mk({ overlay: null })({ id: "n", kind: "function" }), /No threat overlay attached/, "no overlay => not assessed");
 const overlay = { source: { identity: "src", ref: "r1", asOf: "2026-10-17" }, leads: [], unresolved: [] };
 const none = mk({ overlay, leadsByNode: new Map(), nbr: new Map() })({ id: "n", kind: "function" });
@@ -82,6 +82,14 @@ for (let i = 0; i < 200; i++) { manyMembers.set("fn" + i, [{}]); nbr.set("fn" + 
 const fileSec = mk({ overlay, leadsByNode: manyMembers, nbr })({ id: "file1", kind: "file" });
 assert.strictEqual((fileSec.match(/data-goto=/g) || []).length, 30, "only MEMBER_LEADS_SHOWN member functions are listed");
 assert.match(fileSec, /170 more function/, "the omitted member-function count is stated");
+
+// The "Source: ..." stamp renders on EVERY component in Threat Map mode, including one with no
+// leads at all — it carries the same untrusted overlay text as a lead's own fields, so it needs
+// the same clip, not just the per-lead-card one.
+const hugeSourceOverlay = { source: { identity: "i".repeat(10_000), ref: "r".repeat(10_000), asOf: "a".repeat(10_000) }, leads: [], unresolved: [] };
+const hugeSourceSec = mk({ overlay: hugeSourceOverlay, leadsByNode: new Map(), nbr: new Map() })({ id: "n", kind: "function" });
+assert.ok(hugeSourceSec.length < 5_000, "a component with no leads still produces a bounded panel, even with a 30,000-char source stamp");
+assert.ok(!hugeSourceSec.includes("i".repeat(10_000)), "the oversized source.identity is clipped, not emitted in full");
 
 // unresolvedPanel() renders straight from the raw bundle (not an MCP response), so neither the
 // row count nor any one entry's text is bounded by the server-side field caps — both need their
@@ -160,6 +168,16 @@ const drawnState = {
   drawn: new Set(["drawn-fn", "f3"]),   // drawn-fn is drawn directly; stand-in-fn's FILE (f3) is drawn instead; hidden-fn is neither
 };
 assert.deepStrictEqual(cappedLeadIds(drawnState), ["hidden-fn"], "only a lead whose node AND containing file are both undrawn counts as capped");
+
+// Clicking a row in the "not drawn" panel pin-rescues that node via openInspector()'s render()
+// branch (wasDrawn was false going in), which changes state.drawn — goTo() must refresh the
+// legend afterward, or the panel keeps listing the now-visible node and its stale count until
+// some unrelated action rebuilds it.
+const goToSrc = grab(/function goTo\(id\)\{[\s\S]*?\n\}/);
+const goToOpenInspectorCall = goToSrc.indexOf("openInspector(");
+const goToUpdateLegendCall = goToSrc.indexOf("updateLegend()");
+assert.ok(goToOpenInspectorCall !== -1 && goToUpdateLegendCall !== -1 && goToUpdateLegendCall > goToOpenInspectorCall,
+  "goTo() calls updateLegend() after openInspector(), so a newly-rescued node drops out of the not-drawn panel immediately");
 
 // The unresolved panel and the not-drawn-leads panel can both be open at once; they used to be
 // two position:absolute elements at the same left/bottom, so the later one painted directly over
