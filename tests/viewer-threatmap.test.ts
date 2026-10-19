@@ -31,14 +31,24 @@ assert.strictEqual(safeHref("https://example.test/a b"), "https://example.test/a
 
 const LEAD_LABEL = grab(/const LEAD_LABEL = \{[^\n]*\}/);
 const EVIDENCE_ROWS_SHOWN_SRC = grab(/const EVIDENCE_ROWS_SHOWN\s*=\s*\d+;/);
+const LEAD_TEXT_CAP_SRC = grab(/const LEAD_TEXT_CAP\s*=\s*\d+;/);
+const clipSrcForCard = grab(/function clip\(s, n\)\{[^\n]*\}/);
 const leadCardSrc = grab(/function leadCard\(l\)\{[\s\S]*?\n\}/);
-const leadCard = new Function("esc", "safeHref", LEAD_LABEL + ";" + EVIDENCE_ROWS_SHOWN_SRC + ";" + leadCardSrc + "; return leadCard;")(esc, safeHref) as (l: any) => string;
+const leadCard = new Function("esc", "safeHref", EVIDENCE_ROWS_SHOWN_SRC + ";" + LEAD_TEXT_CAP_SRC + ";" + clipSrcForCard + ";" + LEAD_LABEL + ";" + leadCardSrc + "; return leadCard;")(esc, safeHref) as (l: any) => string;
 const card = leadCard({ id: "L", attackClassId: "A<1>", label: "x", status: "hypothetical", confidence: "low", note: '<img src=x onerror="alert(1)">', url: "javascript:alert(1)", evidence: [] });
 assert.ok(!/<img/.test(card), "lead note is escaped");
 assert.ok(!/href=/.test(card), "an unsafe url yields no link");
 assert.match(card, /HYPOTHETICAL LEAD/);
 assert.match(card, /Still needs testing/, "an untested lead says what is missing");
 assert.doesNotMatch(leadCard({ id: "R", attackClassId: "A", label: "x", status: "refuted", confidence: "low", note: "n", evidence: [] }), /Still needs testing/, "a refuted lead is not asked to be tested");
+
+// Row/card caps bound how many things render, not how long any ONE field is — a valid overlay
+// can still put most of its 5MB budget into a single lead's note/label/rule, or one evidence
+// item's source/detail. Every displayed text field must be clipped too.
+const hugeField = "y".repeat(10_000);
+const hugeFieldCard = leadCard({ id: "L3", attackClassId: hugeField, label: hugeField, status: "hypothetical", confidence: "low", note: hugeField, rule: hugeField, evidence: [{ source: hugeField, detail: hugeField }] });
+assert.ok(hugeFieldCard.length < 5_000, "a lead with 10,000-char fields produces a bounded card, not a multi-KB one");
+assert.ok(!hugeFieldCard.includes(hugeField), "the oversized field is clipped, not emitted in full");
 
 // a valid sub-5MB overlay can still put tens of thousands of evidence records on ONE lead — the
 // inspector must not map them all into <li>s synchronously (freeze risk), so this is bounded too.
@@ -151,4 +161,23 @@ const drawnState = {
 };
 assert.deepStrictEqual(cappedLeadIds(drawnState), ["hidden-fn"], "only a lead whose node AND containing file are both undrawn counts as capped");
 
-console.log("viewer-threatmap.test: 4th mode wired, overlay cannot grade Security, text escaped, links http(s) only, honest empty states, legend refreshes on load, capped leads stay discoverable");
+// The unresolved panel and the not-drawn-leads panel can both be open at once; they used to be
+// two position:absolute elements at the same left/bottom, so the later one painted directly over
+// the earlier one. #tmPanel (their host) must be the one positioned+stacking container now, and
+// .tm-panel itself must no longer carry its own position:absolute.
+const tmPanelHostCss = grab(/#tmPanel\{[^}]*\}/);
+assert.match(tmPanelHostCss, /position:absolute/, "#tmPanel is the positioned container");
+assert.match(tmPanelHostCss, /display:flex/, "#tmPanel stacks its panel children instead of letting them overlap");
+const tmPanelCss = grab(/\n\s*\.tm-panel\{[^}]*\}/);
+assert.doesNotMatch(tmPanelCss, /position:absolute/, ".tm-panel no longer positions itself (its host does), so two open panels stack instead of overlapping");
+
+// Threat Map's unresolved/not-drawn-leads buttons are the only way to reach leads the render cap
+// hid, on any screen size — the mobile media query hides the whole #legend they live in, so it
+// must have an escape hatch that keeps them reachable there too.
+const mobileCss = grab(/@media \(max-width:560px\)\{[\s\S]*?\n\s*\}/);
+assert.match(mobileCss, /\.legend\.has-controls\{[^}]*display:flex/, "a has-controls legend stays visible on mobile");
+const updateLegendSrc = grab(/function updateLegend\(\)\{[\s\S]*?\n\}/);
+assert.match(updateLegendSrc, /classList\.remove\("has-controls"\)/, "updateLegend resets the class before deciding whether to re-add it");
+assert.match(updateLegendSrc, /if\(btn \|\| cappedBtn\) el\.classList\.add\("has-controls"\)/, "updateLegend adds has-controls only when it actually put a button in the legend");
+
+console.log("viewer-threatmap.test: 4th mode wired, overlay cannot grade Security, text escaped, links http(s) only, honest empty states, legend refreshes on load, capped leads stay discoverable, lead text bounded, panels don't overlap, mobile controls reachable");

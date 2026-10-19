@@ -217,8 +217,12 @@
   .legend .ln{width:16px;height:0;border-top:2px solid;display:inline-block;margin-right:5px;vertical-align:middle}
   .legend button.unres-chip{font:inherit;color:var(--fg-dim);background:transparent;border:1px dashed var(--fg-faint);border-radius:999px;padding:1px 9px;cursor:pointer}
   .legend button.unres-chip[aria-expanded="true"]{border-style:solid;color:var(--fg)}
-  .tm-panel{position:absolute;left:max(16px,env(safe-area-inset-left,0px));bottom:64px;z-index:5;width:min(420px,90vw);max-height:46vh;overflow:auto;
-    background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--fg-dim)}
+  /* #tmPanel is the one positioned+scrolling container; .tm-panel children stack inside it via
+     flex, so opening the unresolved AND the not-drawn-leads panel at once no longer paints one
+     directly over the other (both used to be position:absolute at the same left/bottom). */
+  #tmPanel{position:absolute;left:max(16px,env(safe-area-inset-left,0px));bottom:64px;z-index:5;width:min(420px,90vw);max-height:46vh;overflow:auto;
+    display:flex;flex-direction:column;gap:8px}
+  .tm-panel{width:100%;background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--fg-dim)}
   .tm-panel h3{margin:0 0 6px;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:var(--fg)}
   .tm-panel .row{border-top:1px solid var(--edge);padding:7px 0}
   .tm-panel code{font-family:var(--mono);font-size:11px;color:var(--fg)}
@@ -236,7 +240,11 @@
   @media (max-width:560px){
     .brand .rev{display:none}
     .legend{display:none}
-    .inspector{width:100vw}
+    /* Threat Map's unresolved-leads/not-drawn-leads buttons are the only way to reach leads the
+       render cap hid, and they render as children of #legend — hiding the whole legend on mobile
+       left mobile users with no way to open either panel. updateLegend() adds this class only
+       when it actually put a button in the legend, so the rest of the legend stays hidden. */
+    .legend.has-controls{display:flex;max-width:none;width:calc(100vw - 32px)}
   }
 </style>
 
@@ -1174,6 +1182,7 @@ const LEAD_CARDS_SHOWN = 30;
 const MEMBER_LEADS_SHOWN = 30;
 const UNRESOLVED_ROWS_SHOWN = 50;
 const UNRESOLVED_TEXT_CAP = 300;
+const LEAD_TEXT_CAP = 300;
 /* The viewer renders the raw bundle JSON, not an MCP tool response, so none of the server-side
    field caps (boundLeadText/boundUnresolvedEntry in tools.ts) apply here — a valid overlay can
    still carry a multi-hundred-KB description on one unresolved entry. Cap it client-side too. */
@@ -1184,14 +1193,17 @@ function leadCard(l){
   // ONE lead — a valid sub-5MB overlay could still put tens of thousands of tiny records here.
   // Mapping an unbounded array into <li>s synchronously on open would stall/freeze the inspector.
   const evItems = l.evidence || [];
-  const ev = evItems.slice(0, EVIDENCE_ROWS_SHOWN).map(e=>`<li><b>${esc(e.source)}</b> ${esc(e.detail)}</li>`).join("")
+  // Row/card counts (EVIDENCE_ROWS_SHOWN, LEAD_CARDS_SHOWN) bound how many items render, not how
+  // long any ONE field is — a valid overlay can still put most of its 5MB document budget into a
+  // single lead's note/label/rule or one evidence item's source/detail. Clip every text field too.
+  const ev = evItems.slice(0, EVIDENCE_ROWS_SHOWN).map(e=>`<li><b>${esc(clip(e.source, LEAD_TEXT_CAP))}</b> ${esc(clip(e.detail, LEAD_TEXT_CAP))}</li>`).join("")
     + (evItems.length > EVIDENCE_ROWS_SHOWN ? `<li>+ ${evItems.length - EVIDENCE_ROWS_SHOWN} more evidence item(s) not shown</li>` : "");
   const untested = (l.status==="hypothetical"||l.status==="inferred") ? `<p class="sec-note"><b>Still needs testing:</b> nothing here has reproduced this. Trace the call path above and confirm at runtime before treating it as a finding.</p>` : "";
   return `<div class="lead-card ${l.status==="refuted"?"refuted":""}">
     <div class="sec-head"><span class="lead-pill">${esc(LEAD_LABEL[l.status]||l.status)}</span><span class="grade-ev">${esc(l.confidence)} confidence</span></div>
-    <p class="sec-title">${esc(l.attackClassId)} · ${href?`<a class="asi-a" href="${href}" target="_blank" rel="noopener">${esc(l.label)} ↗</a>`:esc(l.label)}</p>
-    <p class="sec-expl">${esc(l.note)}</p>
-    ${l.rule?`<p class="sec-note">Mapping rule: <code>${esc(l.rule)}</code></p>`:""}
+    <p class="sec-title">${esc(clip(l.attackClassId, LEAD_TEXT_CAP))} · ${href?`<a class="asi-a" href="${href}" target="_blank" rel="noopener">${esc(clip(l.label, LEAD_TEXT_CAP))} ↗</a>`:esc(clip(l.label, LEAD_TEXT_CAP))}</p>
+    <p class="sec-expl">${esc(clip(l.note, LEAD_TEXT_CAP))}</p>
+    ${l.rule?`<p class="sec-note">Mapping rule: <code>${esc(clip(l.rule, LEAD_TEXT_CAP))}</code></p>`:""}
     ${ev?`<ul class="sec-note">${ev}</ul>`:""}
     ${untested}</div>`;
 }
@@ -1483,6 +1495,7 @@ function applyMode(m){
 function updateLegend(){
   const el=document.getElementById("legend"); if(!el) return;
   const old = document.getElementById("tmPanel"); if(old) old.remove();
+  el.classList.remove("has-controls"); // reset; the threatmap branch below re-adds it if it puts a button here
   if(state.mode==="threatmap"){
     const o = state.overlay;
     const cappedCount = o ? cappedLeadIds().length : 0;
@@ -1496,6 +1509,9 @@ function updateLegend(){
     if(btn) btn.addEventListener("click",()=>{ state.showUnresolved=!state.showUnresolved; updateLegend(); });
     const cappedBtn = document.getElementById("cappedLeadsBtn");
     if(cappedBtn) cappedBtn.addEventListener("click",()=>{ state.showCappedLeads=!state.showCappedLeads; updateLegend(); });
+    // These buttons are the only way to reach leads the render cap hid, on ANY screen size — keep
+    // them reachable on mobile even though the rest of the legend stays hidden there (CSS above).
+    if(btn || cappedBtn) el.classList.add("has-controls");
     const panels = (o && state.showUnresolved ? unresolvedPanel() : "") + (cappedCount && state.showCappedLeads ? cappedLeadsPanel() : "");
     if(panels){
       const host = document.createElement("div"); host.id="tmPanel"; host.innerHTML = panels;
