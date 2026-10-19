@@ -55,6 +55,15 @@ const hugeFieldCard = leadCard({ id: "L3", attackClassId: hugeField, label: huge
 assert.ok(hugeFieldCard.length < 5_000, "a lead with 10,000-char fields produces a bounded card, not a multi-KB one");
 assert.ok(!hugeFieldCard.includes(hugeField), "the oversized field is clipped, not emitted in full");
 
+// safeHref() only checks the scheme before running the WHOLE url through encodeURI() into the
+// href attribute — every OTHER field here is clipped, but an unclipped url would still produce
+// multi-megabyte markup (and, pre-fix, run a multi-MB string through encodeURI on every open).
+const hugeUrl = "https://example.test/" + "z".repeat(50_000);
+const hugeUrlCard = leadCard({ id: "L4", attackClassId: "A", label: "x", status: "hypothetical", confidence: "low", note: "n", url: hugeUrl, evidence: [] });
+assert.ok(hugeUrlCard.length < 5_000, "a lead with a 50,000-char url still produces a bounded card");
+assert.ok(!hugeUrlCard.includes("z".repeat(1000)), "the url itself is clipped before being encoded into href, not emitted in full");
+assert.match(hugeUrlCard, /href="https:\/\/example\.test\//, "a valid (clipped) https url still yields a working link");
+
 // a valid sub-5MB overlay can still put tens of thousands of evidence records on ONE lead — the
 // inspector must not map them all into <li>s synchronously (freeze risk), so this is bounded too.
 const manyEvidence = Array.from({ length: 5000 }, (_, i) => ({ source: "s" + i, detail: "d" + i }));
@@ -112,6 +121,11 @@ assert.match(panel, /150 more unresolved/, "the omitted row count is stated");
 const hugeDesc = [{ attackClassId: "A", description: "x".repeat(10_000), reason: "r" }];
 const hugePanel = unresolvedPanel({ overlay: { ...overlay, unresolved: hugeDesc }, showUnresolved: true });
 assert.ok(hugePanel.length < 5_000, "one oversized entry's description is clipped, not emitted in full");
+// attackClassId was rendered with a bare esc(), unlike description/target/reason which were
+// already clip()'d — an overlay putting its allowance there alone would still blow up the panel.
+const hugeClass = [{ attackClassId: "C".repeat(10_000), description: "d", reason: "r" }];
+const hugeClassPanel = unresolvedPanel({ overlay: { ...overlay, unresolved: hugeClass }, showUnresolved: true });
+assert.ok(hugeClassPanel.length < 5_000, "one oversized attackClassId is clipped too, not emitted in full");
 
 // A collapsed file stands in for the leads on its hidden functions.
 const leadOnSrc = grab(/function leadOn\(id\)\{[\s\S]*?\n\}/);

@@ -1208,7 +1208,10 @@ const LEAD_TEXT_CAP = 300;
    still carry a multi-hundred-KB description on one unresolved entry. Cap it client-side too. */
 function clip(s, n){ s = String(s||""); return s.length > n ? s.slice(0, n) + "…" : s; }
 function leadCard(l){
-  const href = safeHref(l.url);
+  // l.url is unclipped overlay text — safeHref() only checks the scheme and then runs the WHOLE
+  // value through encodeURI() into the href attribute, so even though every other field here is
+  // clipped, a multi-megabyte url would still produce multi-megabyte markup. Clip before encoding.
+  const href = safeHref(clip(l.url, LEAD_TEXT_CAP));
   // The overlay document cap (5MB/5,000 entries) bounds the WHOLE document, not evidence items on
   // ONE lead — a valid sub-5MB overlay could still put tens of thousands of tiny records here.
   // Mapping an unbounded array into <li>s synchronously on open would stall/freeze the inspector.
@@ -1262,7 +1265,7 @@ function unresolvedPanel(){
   // The overlay cap allows up to 5,000 unresolved entries, and one entry's description can run
   // to most of the 5MB document limit on its own — bound both the row count and each row's text
   // so opening this panel can't build an unbounded innerHTML assignment.
-  const rows = all.slice(0, UNRESOLVED_ROWS_SHOWN).map(u=>`<div class="row"><code>${esc(u.attackClassId)}</code> · ${esc(clip(u.description, UNRESOLVED_TEXT_CAP))}<br><span style="color:var(--fg-faint)">${u.target?`target <code>${esc(clip(u.target, UNRESOLVED_TEXT_CAP))}</code> · `:""}${esc(clip(u.reason, UNRESOLVED_TEXT_CAP))}</span></div>`).join("");
+  const rows = all.slice(0, UNRESOLVED_ROWS_SHOWN).map(u=>`<div class="row"><code>${esc(clip(u.attackClassId, UNRESOLVED_TEXT_CAP))}</code> · ${esc(clip(u.description, UNRESOLVED_TEXT_CAP))}<br><span style="color:var(--fg-faint)">${u.target?`target <code>${esc(clip(u.target, UNRESOLVED_TEXT_CAP))}</code> · `:""}${esc(clip(u.reason, UNRESOLVED_TEXT_CAP))}</span></div>`).join("");
   const overflow = all.length > UNRESOLVED_ROWS_SHOWN ? `<p>+ ${all.length - UNRESOLVED_ROWS_SHOWN} more unresolved entry(ies) not shown.</p>` : "";
   return `<div class="tm-panel" role="region" aria-label="Unresolved leads"><h3>Unresolved (${all.length})</h3><p>These could not be placed on exactly one component of this graph. They are unknown, not cleared.</p>${rows||"<p>None.</p>"}${overflow}</div>`;
 }
