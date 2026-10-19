@@ -178,6 +178,22 @@ try {
   assert.ok(hugeEntry.description.length < 1000, "a near-5MB description is bounded in the overview summary, not returned whole");
   assert.ok(hugeEntry.target.length < 1000, "the target field is bounded too");
 
+  // --- threats()/threatLeads() bound each resolved lead's free-text fields too ----------------
+  // (the ROW count being bounded does not bound any ONE row's note/label/evidence)
+  // (kept well under the 5MB overlay FILE cap — that's covered separately above — this is testing
+  // the per-FIELD cap on an otherwise normal-sized overlay document)
+  const hugeNoteDoc = doc({ leads: [{ id: "L-HUGE", attackClassId: "AAC-01", label: "y".repeat(5_000), target: "src/handler.js#handlePrompt", status: "hypothetical", note: "x".repeat(5_000), evidence: [{ source: "s".repeat(5_000), detail: "d".repeat(5_000) }] }] });
+  const hugeNoteFile = join(root, "huge-note-overlay.json");
+  writeFileSync(hugeNoteFile, JSON.stringify(hugeNoteDoc));
+  const builtHugeNote = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: hugeNoteFile });
+  const hugeTools = new AtlasTools(builtHugeNote.bundle);
+  const hugeThreatsLead = (hugeTools.threats(fn.id) as any).leads.find((l: any) => l.id === "L-HUGE");
+  assert.ok(hugeThreatsLead, "the oversized-field lead still resolves and attaches");
+  assert.ok(hugeThreatsLead.label.length < 1000 && hugeThreatsLead.note.length < 1000, "threats() bounds a lead's label/note");
+  assert.ok(hugeThreatsLead.evidence[0].source.length < 1000 && hugeThreatsLead.evidence[0].detail.length < 1000, "threats() bounds evidence fields too");
+  const hugeListLead = (hugeTools.threatLeads() as any).leads.find((l: any) => l.id === "L-HUGE");
+  assert.ok(hugeListLead.label.length < 1000 && hugeListLead.note.length < 1000, "threatLeads() bounds a lead's label/note the same way");
+
   // --- atlas.threatLeads(): resolved leads are enumerable without knowing a node id first ---
   const allLeads: any = tools.threatLeads();
   assert.strictEqual(allLeads.leads.length, 2, "both resolved leads are listed with no ref needed");

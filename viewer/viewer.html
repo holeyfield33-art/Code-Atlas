@@ -624,6 +624,13 @@ function pinnedIds(){
   const add = k => { const id = state.byExploreKey && state.byExploreKey.get(k); if(id) s.add(id); };
   explore.recent.slice(0,30).forEach(add);
   for(const k in explore.items) if(explore.items[k].b) add(k);
+  // In Threat Map, a lead must stay discoverable even on a repo big enough to hit the render
+  // cap: a resolved lead with nothing pinning its node/file is otherwise silently dropped by
+  // collapseForDetail's degree ranking, with no list view to find it in afterward.
+  if(state.mode==="threatmap" && state.leadsByNode){
+    for(const id of state.leadsByNode.keys()) s.add(id);
+    if(state.leadFiles) for(const id of state.leadFiles) s.add(id);
+  }
   return s;
 }
 function fogged(id, base){

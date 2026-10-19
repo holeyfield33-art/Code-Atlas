@@ -12,13 +12,23 @@ import { castsBlastAfterTriage } from "../triage.js";
 
 const sha = (s: string) => "sha256:" + createHash("sha256").update(s).digest("hex").slice(0, 16);
 
-const UNRESOLVED_FIELD_CAP = 200;
-/** Cap each unresolved lead's free-text fields (an untrusted overlay can carry a `description`
- *  anywhere up to the 5 MB document limit) before slicing to a page — slicing the ARRAY alone
- *  still lets one oversized field through in full. `cappedAt` tells a caller it was cut. */
+const OVERLAY_FIELD_CAP = 200;
+/** Cap one free-text field from an UNTRUSTED overlay (any of its text fields can run up to the
+ *  5 MB document limit) before it leaves this process. Bounding the row/array length alone still
+ *  lets one oversized field cross the MCP `ok` wrapper whole. */
+const capText = (s: string): string => (s.length > OVERLAY_FIELD_CAP ? s.slice(0, OVERLAY_FIELD_CAP) + "…" : s);
+
 function boundUnresolvedEntry<T extends { description: string; target?: string }>(u: T): T {
-  const cap = (s: string) => (s.length > UNRESOLVED_FIELD_CAP ? s.slice(0, UNRESOLVED_FIELD_CAP) + "…" : s);
-  return { ...u, description: cap(u.description), ...(u.target !== undefined ? { target: cap(u.target) } : {}) };
+  return { ...u, description: capText(u.description), ...(u.target !== undefined ? { target: capText(u.target) } : {}) };
+}
+
+/** Bound a resolved lead's free-text fields (label, note, url, each evidence item) before it's
+ *  surfaced by threats()/threatLeads() — the row count being bounded does not bound any ONE row. */
+function boundLeadText(l: ThreatLead): Pick<ThreatLead, "label" | "note" | "url" | "evidence"> {
+  return {
+    label: capText(l.label), note: capText(l.note), url: l.url !== undefined ? capText(l.url) : undefined,
+    evidence: l.evidence.map((e) => ({ source: capText(e.source), detail: capText(e.detail) })),
+  };
 }
 
 /** Deterministic hash of ALL state a read tool can surface — not the (optional,
@@ -203,10 +213,13 @@ export class AtlasTools {
       asiRef: f.asiRef ?? null,
       disposition: f.disposition ?? null,
     });
-    const leads = ids.flatMap((id) => (this.leadsByNode.get(id) ?? []).map((l) => ({
-      id: l.id, attackClassId: l.attackClassId, label: l.label, status: l.status, confidence: l.confidence,
-      note: l.note, rule: l.rule ?? null, url: l.url ?? null, evidence: l.evidence, node: this.brief(id),
-    })));
+    const leads = ids.flatMap((id) => (this.leadsByNode.get(id) ?? []).map((l) => {
+      const bounded = boundLeadText(l);
+      return {
+        id: l.id, attackClassId: l.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
+        note: bounded.note, rule: l.rule ?? null, url: bounded.url ?? null, evidence: bounded.evidence, node: this.brief(id),
+      };
+    }));
     return { ref, findings: found, leads, note: "Leads come from an external overlay and are hypotheses to investigate, not findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Grade reflects how this was verified; a dependency link alone does not establish exploitability. A disposition is a human/agent triage decision and never upgrades the grade." };
   }
 
@@ -224,10 +237,13 @@ export class AtlasTools {
       if (filter.confidence && l.confidence !== filter.confidence) continue;
       if (filter.path && !(node?.evidence.path ?? "").includes(filter.path)) continue;
       total++;
-      if (rows.length < limit) rows.push({
-        id: l.id, attackClassId: l.attackClassId, label: l.label, status: l.status, confidence: l.confidence,
-        note: l.note, rule: l.rule ?? null, url: l.url ?? null, node: node ? this.brief(l.nodeId) : { id: l.nodeId },
-      });
+      if (rows.length < limit) {
+        const bounded = boundLeadText(l);
+        rows.push({
+          id: l.id, attackClassId: l.attackClassId, label: bounded.label, status: l.status, confidence: l.confidence,
+          note: bounded.note, rule: l.rule ?? null, url: bounded.url ?? null, node: node ? this.brief(l.nodeId) : { id: l.nodeId },
+        });
+      }
     }
     return { total, returned: rows.length, leads: rows, note: "Leads are hypotheses from an external overlay, never findings; only a finding graded OBSERVED/TESTED on this repo is a verified weakness. Use atlas_threats(id) for a node's leads plus its real findings together." };
   }

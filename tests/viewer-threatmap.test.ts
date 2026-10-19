@@ -56,6 +56,17 @@ assert.ok(!leadOn({ ...base, detail: "full" })("file"), "in the full view the fi
 assert.ok(!leadOn({ ...base, detail: "files", expanded: new Set(["file"]) })("file"), "an expanded file no longer stands in for its functions");
 assert.ok(leadOn({ ...base, detail: "files" })("fn"), "the function itself is marked");
 
+// pinnedIds() must keep a resolved lead's node AND its containing file drawn under the render
+// cap in Threat Map mode — otherwise collapseForDetail's degree ranking can silently drop it on
+// a large repo, with no list view through which it could be found afterward.
+const pinnedIdsSrc = grab(/function pinnedIds\(\)\{[\s\S]*?\n\}/);
+const pinnedIds = (state: any, explore: any) => new Function("state", "explore", pinnedIdsSrc + "; return pinnedIds;")(state, explore)();
+const leadState = { mode: "threatmap", leadsByNode: new Map([["fn1", [{}]]]), leadFiles: new Set(["file1"]), byExploreKey: new Map() };
+const noExplore = { items: {}, recent: [] };
+assert.ok(pinnedIds(leadState, noExplore).has("fn1"), "a lead's own node is pinned in Threat Map mode");
+assert.ok(pinnedIds(leadState, noExplore).has("file1"), "a lead's containing file is pinned too");
+assert.ok(!pinnedIds({ ...leadState, mode: "security" }, noExplore).has("fn1"), "leads are not force-pinned outside Threat Map mode");
+
 // loadGraph must refresh the legend itself: if it only relied on applyMode/the unresolved-chip
 // handler, a bundle loaded while already in Threat Map mode would leave the legend (and an open
 // unresolved panel) showing the PREVIOUS bundle's overlay until the user toggled something.
