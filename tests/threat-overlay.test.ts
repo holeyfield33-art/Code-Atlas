@@ -522,6 +522,31 @@ try {
   assert.ok(pages > 1, "more than one page was needed, so this actually exercised pagination");
   assert.deepStrictEqual(evidenceTools.lead("nope"), { error: "unknown lead id", id: "nope", hint: "use atlas_threat_leads or atlas.threatLeads({...}) to find an id" }, "an unknown lead id reports an error, not a throw");
 
+  // --- an oversized lead id must still round-trip into lead(id) --------------------------------
+  // boundLeadText()/threats()/threatLeads() truncate an oversized free-text field with capText()
+  // (slice + "…"), but an id used as a lookup KEY can't be truncated that way: the truncated form
+  // no longer matches the original id leadsById is keyed on, so a caller could never pass the id
+  // it was just shown back into lead(id). The fix replaces an oversized id with a stable, bounded
+  // hash that leadsById is ALSO keyed on, so enumerate -> lookup always round-trips.
+  const oversizedId = "L-" + "x".repeat(400);
+  const oversizedIdDoc = doc({ leads: [{
+    id: oversizedId, attackClassId: "AAC-01", label: "oversized id round-trip", target: "src/handler.js#handlePrompt",
+    status: "hypothetical", note: "n",
+  }] });
+  const oversizedIdFile = join(root, "oversized-id-overlay.json");
+  writeFileSync(oversizedIdFile, JSON.stringify(oversizedIdDoc));
+  const builtOversizedId = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: oversizedIdFile });
+  const oversizedIdTools = new AtlasTools(builtOversizedId.bundle);
+  const oversizedRow: any = (oversizedIdTools.threats(fn.id) as any).leads.find((l: any) => l.label === "oversized id round-trip");
+  assert.ok(oversizedRow, "the oversized-id lead still attaches and is enumerable");
+  assert.notStrictEqual(oversizedRow.id, oversizedId, "the oversized id is not passed through verbatim");
+  assert.ok(!oversizedRow.id.endsWith("…"), "the oversized id is not naively truncated with an ellipsis — that form can never match the lookup key again");
+  assert.ok(oversizedRow.id.length <= 200, "the replacement key is itself bounded");
+  const oversizedLookup: any = oversizedIdTools.lead(oversizedRow.id);
+  assert.strictEqual(oversizedLookup.label, "oversized id round-trip", "the id threats() just returned resolves back through lead(id)");
+  const oversizedListRow: any = (oversizedIdTools.threatLeads() as any).leads.find((l: any) => l.label === "oversized id round-trip");
+  assert.strictEqual(oversizedListRow.id, oversizedRow.id, "threats() and threatLeads() compute the same replacement key for the same lead");
+
   // --- threatLeads() pagination: more matches than `limit` must actually be reachable ----------
   const page1: any = manyLeadsTools.threatLeads({ limit: 10 });
   assert.strictEqual(page1.leads.length, 10);

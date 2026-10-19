@@ -1228,7 +1228,7 @@ function leadCard(l){
   const untested = (l.status==="hypothetical"||l.status==="inferred") ? `<p class="sec-note"><b>Still needs testing:</b> nothing here has reproduced this. Trace the call path above and confirm at runtime before treating it as a finding.</p>` : "";
   return `<div class="lead-card ${l.status==="refuted"?"refuted":""}">
     <div class="sec-head"><span class="lead-pill">${esc(LEAD_LABEL[l.status]||l.status)}</span><span class="grade-ev">${esc(l.confidence)} confidence</span></div>
-    <p class="sec-title">${esc(clip(l.attackClassId, LEAD_TEXT_CAP))} · ${href?`<a class="asi-a" href="${href}" target="_blank" rel="noopener">${esc(clip(l.label, LEAD_TEXT_CAP))} ↗</a>`:esc(clip(l.label, LEAD_TEXT_CAP))}</p>
+    <p class="sec-title">${esc(clip(l.attackClassId, LEAD_TEXT_CAP))} · ${href?`<a class="asi-a" href="${esc(href)}" target="_blank" rel="noopener">${esc(clip(l.label, LEAD_TEXT_CAP))} ↗</a>`:esc(clip(l.label, LEAD_TEXT_CAP))}</p>
     <p class="sec-expl">${esc(clip(l.note, LEAD_TEXT_CAP))}</p>
     ${l.rule?`<p class="sec-note">Mapping rule: <code>${esc(clip(l.rule, LEAD_TEXT_CAP))}</code></p>`:""}
     ${ev?`<ul class="sec-note">${ev}</ul>`:""}

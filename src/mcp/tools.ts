@@ -23,6 +23,13 @@ const capText = (s: string): string => (s.length > OVERLAY_FIELD_CAP ? s.slice(0
  *  row COUNT still lets one lead's evidence alone serialize to megabytes. */
 const EVIDENCE_CAP = 50;
 
+/** capText() truncates an oversized id with "…", but that truncated form no longer matches the
+ *  original id used as the `leadsById` lookup key — unlike a purely-displayed field, an id has to
+ *  round-trip through lead(id). So an oversized id is never truncated: it is replaced with a
+ *  stable, bounded-length opaque hash that `leadsById` keys off the SAME way, so whatever a caller
+ *  sees from threats()/threatLeads() always resolves back through lead(id). */
+const leadKey = (id: string): string => (id.length <= OVERLAY_FIELD_CAP ? id : sha(id));
+
 // Every free-text field on an UnresolvedLead is overlay-controlled and can independently run up to
 // the document limit — capping only description/target (the original fix) still lets id/attackClassId/
 // reason carry an oversized string through untouched. Cap every string field here.
@@ -45,7 +52,7 @@ function boundUnresolvedEntry<T extends { id: string; attackClassId: string; des
  *  allowance into any of those three instead. */
 function boundLeadText(l: ThreatLead): Pick<ThreatLead, "id" | "attackClassId" | "label" | "note" | "rule" | "url" | "target" | "evidence"> & { evidenceTotal: number } {
   return {
-    id: capText(l.id), attackClassId: capText(l.attackClassId), target: capText(l.target),
+    id: leadKey(l.id), attackClassId: capText(l.attackClassId), target: capText(l.target),
     label: capText(l.label), note: capText(l.note), rule: l.rule !== undefined ? capText(l.rule) : undefined,
     // A truncated url (capText's slice+"…") is a DIFFERENT address that still looks like the
     // source's own reference — a caller that follows or cites it lands somewhere else entirely.
@@ -111,7 +118,7 @@ export class AtlasTools {
       else if (e.kind === "imports") push(this.importsOut, e.from, e.to);
       else if (e.kind === "contains") this.containerOf.set(e.to, e.from);
     }
-    for (const l of bundle.threatOverlay?.leads ?? []) { push(this.leadsByNode, l.nodeId, l); this.leadsById.set(l.id, l); }
+    for (const l of bundle.threatOverlay?.leads ?? []) { push(this.leadsByNode, l.nodeId, l); this.leadsById.set(leadKey(l.id), l); }
     for (const f of bundle.findings ?? []) {
       for (const ref of f.nodeRefs) push(this.findingsByNode, ref, f);
       push(this.findingsById, f.id, f);
@@ -348,7 +355,7 @@ export class AtlasTools {
     const nextOffset = offset + evidence.length < l.evidence.length ? offset + evidence.length : null;
     const node = this.byId.get(l.nodeId);
     return {
-      id: capText(l.id), attackClassId: capText(l.attackClassId), label: capText(l.label), status: l.status, confidence: l.confidence,
+      id: leadKey(l.id), attackClassId: capText(l.attackClassId), label: capText(l.label), status: l.status, confidence: l.confidence,
       leadNote: capText(l.note), rule: l.rule !== undefined ? capText(l.rule) : null,
       url: l.url !== undefined && l.url.length <= OVERLAY_FIELD_CAP ? l.url : undefined,
       target: capText(l.target), node: node ? this.brief(l.nodeId) : { id: l.nodeId },

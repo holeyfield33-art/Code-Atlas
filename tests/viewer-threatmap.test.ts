@@ -70,6 +70,16 @@ const okUrl = "https://example.test/short";
 const okUrlCard = leadCard({ id: "L5", attackClassId: "A", label: "x", status: "hypothetical", confidence: "low", note: "n", url: okUrl, evidence: [] });
 assert.match(okUrlCard, /href="https:\/\/example\.test\/short"/, "a url within the safe bound still yields a real, unaltered link");
 
+// safeHref()'s encodeURI() leaves "&" (and so a whole HTML named character reference like
+// "&copy;") untouched, so interpolating its result straight into href="..." without HTML-escaping
+// lets the HTML parser decode that reference back into a character, silently changing the link's
+// real destination out from under the href the overlay actually asked for. asiLink() elsewhere in
+// this file already escapes its href the same way; leadCard() must match that pattern.
+const entityUrl = "https://example.test/?x=1&copy;2";
+const entityUrlCard = leadCard({ id: "L6", attackClassId: "A", label: "x", status: "hypothetical", confidence: "low", note: "n", url: entityUrl, evidence: [] });
+assert.match(entityUrlCard, /href="https:\/\/example\.test\/\?x=1&amp;copy;2"/, "an HTML named character reference in the url is escaped in the href attribute, not left to be decoded by the parser");
+assert.ok(!/href="https:\/\/example\.test\/\?x=1&copy;2"/.test(entityUrlCard), "the raw, unescaped entity never appears in the href attribute");
+
 // a valid sub-5MB overlay can still put tens of thousands of evidence records on ONE lead — the
 // inspector must not map them all into <li>s synchronously (freeze risk), so this is bounded too.
 const manyEvidence = Array.from({ length: 5000 }, (_, i) => ({ source: "s" + i, detail: "d" + i }));
