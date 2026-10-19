@@ -264,6 +264,10 @@ assert.doesNotMatch(tmPanelCss, /position:absolute/, ".tm-panel no longer positi
 // must have an escape hatch that keeps them reachable there too.
 const mobileCss = grab(/@media \(max-width:560px\)\{[\s\S]*?\n\s*\}/);
 assert.match(mobileCss, /\.legend\.has-controls\{[^}]*display:flex/, "a has-controls legend stays visible on mobile");
+// The has-controls exception above was added alongside the existing mobile .inspector override;
+// a prior round dropped that override while adding the exception, leaving an uncovered strip
+// beside the inspector on phones. It must still force the inspector to the full viewport width.
+assert.match(mobileCss, /\.inspector\{width:100vw\}/, "the mobile evidence inspector still spans the full viewport width");
 const updateLegendSrc = grab(/function updateLegend\(\)\{[\s\S]*?\n\}/);
 assert.match(updateLegendSrc, /classList\.remove\("has-controls"\)/, "updateLegend resets the class before deciding whether to re-add it");
 assert.match(updateLegendSrc, /if\(btn \|\| cappedBtn\) el\.classList\.add\("has-controls"\)/, "updateLegend adds has-controls only when it actually put a button in the legend");
