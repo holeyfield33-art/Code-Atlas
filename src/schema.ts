@@ -383,6 +383,13 @@ export function parseBundle(input: unknown): AtlasBundle {
       if (seen.has(l.id)) throw new Error(`Duplicate threat lead id ${l.id}`);
       seen.add(l.id);
       if (l.url !== undefined && !/^https?:\/\//i.test(l.url)) throw new Error(`Threat lead ${l.id} url must be http(s)`);
+      // Same grounding rule resolveOverlay() enforces while BUILDING an overlay (observed/verified
+      // with no evidence is downgraded to inferred) must also hold for a bundle handed to us ready-
+      // made — e.g. the MCP server loads a bundle file directly via parseBundle, bypassing build()
+      // entirely. parseBundle only ever throws (it never mutates), so an ungrounded claim is rejected
+      // here rather than silently downgraded, same as a forged nodeId or a non-http(s) url above.
+      if ((l.status === "observed" || l.status === "verified") && l.evidence.length === 0)
+        throw new Error(`Threat lead ${l.id} claims '${l.status}' with no evidence (must be downgraded to 'inferred')`);
     }
   }
   return bundle;

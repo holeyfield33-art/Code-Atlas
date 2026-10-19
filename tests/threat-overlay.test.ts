@@ -84,6 +84,13 @@ try {
   const badUrl = JSON.parse(JSON.stringify(built.bundle));
   badUrl.threatOverlay.leads[0].url = "javascript:alert(1)";
   assert.throws(() => parseBundle(badUrl), /http\(s\)/, "forged url scheme rejected");
+  // resolveOverlay() downgrades observed/verified-with-no-evidence while BUILDING; a bundle handed
+  // straight to parseBundle (e.g. the MCP server reading a bundle file directly) must not be able
+  // to bypass that by simply shipping the ungrounded claim pre-baked.
+  const ungrounded = JSON.parse(JSON.stringify(built.bundle));
+  ungrounded.threatOverlay.leads[0].status = "verified";
+  ungrounded.threatOverlay.leads[0].evidence = [];
+  assert.throws(() => parseBundle(ungrounded), /claims 'verified' with no evidence/, "an ungrounded status cannot reach the MCP server via a hand-authored bundle");
 
   // --- a bad source never breaks the build; the reason is recorded, not swallowed --
   writeFileSync(join(root, "broken.json"), "{ not json");
