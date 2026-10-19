@@ -130,7 +130,15 @@ export class AtlasTools {
       findingsByDisposition: tally(findings.map((f) => f.disposition?.status ?? "untriaged")),
       threatOverlay: this.bundle.threatOverlay
         ? {
-            source: this.bundle.threatOverlay.source, leads: this.bundle.threatOverlay.leads.length,
+            // source.identity/ref/asOf come from the same untrusted overlay document as
+            // leads/unresolved (up to the 5MB document limit on any one field) and overview()
+            // is the recommended FIRST call — it must stay cheap even when those fields are not.
+            source: {
+              identity: capText(this.bundle.threatOverlay.source.identity),
+              ref: capText(this.bundle.threatOverlay.source.ref),
+              asOf: capText(this.bundle.threatOverlay.source.asOf),
+            },
+            leads: this.bundle.threatOverlay.leads.length,
             unresolved: this.bundle.threatOverlay.unresolved.slice(0, 50).map(boundUnresolvedEntry),
             unresolvedTotal: this.bundle.threatOverlay.unresolved.length,
           }

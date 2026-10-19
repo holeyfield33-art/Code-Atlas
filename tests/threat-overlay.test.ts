@@ -207,6 +207,18 @@ try {
   assert.ok(hugeEntry.description.length < 1000, "a near-5MB description is bounded in the overview summary, not returned whole");
   assert.ok(hugeEntry.target.length < 1000, "the target field is bounded too");
 
+  // --- overview()'s threatOverlay.source is also untrusted overlay text, same cap applies -----
+  // (leads/unresolved had field caps; source.identity/ref/asOf did not, and overview() is the
+  // RECOMMENDED FIRST call — it has to stay cheap even when those three fields are not)
+  const hugeSourceDoc = doc({ source: { identity: "i".repeat(1_000_000), ref: "r".repeat(1_000_000), asOf: "a".repeat(1_000_000) } });
+  const hugeSourceFile = join(root, "huge-source-overlay.json");
+  writeFileSync(hugeSourceFile, JSON.stringify(hugeSourceDoc));
+  const builtHugeSource = await buildAtlas(root, { product: "Code Atlas", repoLabel: "overlay-test", asiOverlay: hugeSourceFile });
+  const ovHugeSource: any = new AtlasTools(builtHugeSource.bundle).overview();
+  assert.ok(ovHugeSource.threatOverlay.source.identity.length < 1000, "source.identity is bounded in the overview summary");
+  assert.ok(ovHugeSource.threatOverlay.source.ref.length < 1000, "source.ref is bounded too");
+  assert.ok(ovHugeSource.threatOverlay.source.asOf.length < 1000, "source.asOf is bounded too");
+
   // --- threats()/threatLeads() bound each resolved lead's free-text fields too ----------------
   // (the ROW count being bounded does not bound any ONE row's note/label/evidence)
   // (kept well under the 5MB overlay FILE cap — that's covered separately above — this is testing

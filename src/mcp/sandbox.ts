@@ -79,9 +79,14 @@ const BOOTSTRAP = `
       neighbors:   (id, kinds)   => __call("neighbors", [id, kinds]),
       contextPack: (task, budget)=> __call("contextPack", [task, budget]),
       threats:     (ref)         => __call("threats", [ref]),
-      findings:    (filter)      => __call("findings", [filter]),
-      threatLeads: (filter)      => __call("threatLeads", [filter]),
-      routes:      (filter)      => __call("routes", [filter]),
+      // Each of these takes an OPTIONAL filter object on the host side (default {}). JSON.stringify
+      // turns a bare \`undefined\` argument into null inside the array ([undefined] -> "[null]"),
+      // and the host's JSON.parse hands that literal null straight to the method — bypassing its
+      // JS default parameter, which only fires for undefined, not null. Default it HERE instead,
+      // before it is ever stringified, so atlas.findings() etc. work with no argument at all.
+      findings:    (filter = {}) => __call("findings", [filter]),
+      threatLeads: (filter = {}) => __call("threatLeads", [filter]),
+      routes:      (filter = {}) => __call("routes", [filter]),
       course:      (id)          => __call("course", [id]),
     });
   })();
