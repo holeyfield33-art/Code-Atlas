@@ -20,7 +20,7 @@
  *   - Loading is optional: a missing or broken source leaves the bundle exactly as it
  *     would be without it, and the failure is reported, not swallowed.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { z } from "zod";
 import {
   LeadStatusSchema,
@@ -127,15 +127,53 @@ export function resolveOverlay(graph: AtlasGraph, raw: unknown): ResolvedOverlay
 }
 
 /** Read an overlay document from a file path or an http(s) URL. Bounded in size and time. */
+/** Read a response body under a BYTE limit, never buffering past it. Checks the declared
+ *  Content-Length upfront (rejects before any read when it alone proves oversize), then
+ *  streams and counts actual bytes — not JS string length, which undercounts multi-byte
+ *  UTF-8 text and would let an oversized document through. */
+async function readBoundedBody(res: Response): Promise<string> {
+  const declared = res.headers.get("content-length");
+  if (declared && Number(declared) > MAX_OVERLAY_BYTES) {
+    throw new Error(`overlay source exceeds ${MAX_OVERLAY_BYTES} bytes (Content-Length ${declared})`);
+  }
+  const reader = res.body?.getReader();
+  if (!reader) {
+    // No streaming body (unusual for a real fetch implementation, possible in a test double).
+    // Still bounded: a declared Content-Length above was already checked; this is the fallback
+    // for a response with neither.
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.byteLength > MAX_OVERLAY_BYTES) throw new Error(`overlay source exceeds ${MAX_OVERLAY_BYTES} bytes`);
+    return new TextDecoder().decode(buf);
+  }
+  let total = 0;
+  const chunks: Uint8Array[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_OVERLAY_BYTES) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`overlay source exceeds ${MAX_OVERLAY_BYTES} bytes`);
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) { out.set(c, offset); offset += c.byteLength; }
+  return new TextDecoder().decode(out);
+}
+
 export async function readOverlaySource(spec: string, fetchImpl: typeof fetch = fetch): Promise<unknown> {
   if (/^https?:\/\//i.test(spec)) {
     const res = await fetchImpl(spec, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: "error", headers: { accept: "application/json" } });
     if (!res.ok) throw new Error(`overlay source returned HTTP ${res.status}`);
-    const text = await res.text();
-    if (text.length > MAX_OVERLAY_BYTES) throw new Error(`overlay source exceeds ${MAX_OVERLAY_BYTES} bytes`);
+    const text = await readBoundedBody(res);
     return JSON.parse(text);
   }
+  // Byte size from the filesystem, not a post-read string length: stat() never loads the
+  // file, so an oversized local file is rejected before any of it reaches memory.
+  const size = statSync(spec).size;
+  if (size > MAX_OVERLAY_BYTES) throw new Error(`overlay file exceeds ${MAX_OVERLAY_BYTES} bytes`);
   const text = readFileSync(spec, "utf8");
-  if (text.length > MAX_OVERLAY_BYTES) throw new Error(`overlay file exceeds ${MAX_OVERLAY_BYTES} bytes`);
   return JSON.parse(text);
 }

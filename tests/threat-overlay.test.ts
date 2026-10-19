@@ -105,6 +105,49 @@ try {
   await readOverlaySource("https://asi.test/overlay", spyFetch);
   assert.strictEqual(sawRedirectMode, "error", "redirects are refused (no hop to an internal address)");
 
+  // an oversized Content-Length is rejected outright, before the implementation ever
+  // calls reader.read() itself (checked via the explicit getReader spy below)
+  let readerRequested = false;
+  const oversizeDeclaredFetch = (async () => {
+    const res = new Response(new ReadableStream({ pull(c) { c.enqueue(new TextEncoder().encode("x")); c.close(); } }),
+      { status: 200, headers: { "content-length": String(6_000_000) } });
+    const realGetReader = res.body!.getReader.bind(res.body);
+    (res.body as any).getReader = (...a: unknown[]) => { readerRequested = true; return realGetReader(...(a as [])); };
+    return res;
+  }) as typeof fetch;
+  await assert.rejects(() => readOverlaySource("https://asi.test/overlay", oversizeDeclaredFetch), /exceeds 5000000 bytes \(Content-Length/);
+  assert.strictEqual(readerRequested, false, "a declared-oversize response never has its body reader requested");
+
+  // no Content-Length, but the stream itself exceeds the limit: rejected mid-stream, not buffered whole first
+  let bytesProducedBeforeThrow = 0;
+  const unboundedStreamFetch = (async () => new Response(
+    new ReadableStream({
+      pull(c) {
+        const chunk = new Uint8Array(1_000_000);
+        bytesProducedBeforeThrow += chunk.byteLength;
+        c.enqueue(chunk);
+        if (bytesProducedBeforeThrow > 7_000_000) c.close();
+      },
+    }),
+    { status: 200 },
+  )) as typeof fetch;
+  await assert.rejects(() => readOverlaySource("https://asi.test/overlay", unboundedStreamFetch), /exceeds 5000000 bytes/);
+  assert.ok(bytesProducedBeforeThrow < 8_000_000, "streaming stops once the cap is crossed, not at end of stream");
+
+  // the limit is enforced in BYTES, not JS string length: a multi-byte-heavy document can be
+  // under 5,000,000 UTF-16 units yet over 5,000,000 UTF-8 bytes, and must still be rejected
+  const multibyte = "€".repeat(1_700_001);               // 1 UTF-16 unit, 3 UTF-8 bytes each => ~5.1MB
+  assert.ok(multibyte.length < 5_000_000, "fewer JS string units than the byte limit");
+  const multibyteBytes = new TextEncoder().encode(multibyte);
+  assert.ok(multibyteBytes.byteLength > 5_000_000, "but more actual bytes than the byte limit");
+  const multibyteFetch = (async () => new Response(multibyteBytes, { status: 200 })) as typeof fetch;
+  await assert.rejects(() => readOverlaySource("https://asi.test/overlay", multibyteFetch), /exceeds 5000000 bytes/);
+
+  // the local-file path is also byte-checked via stat(), before the file is read
+  const bigFile = join(root, "big-overlay.json");
+  writeFileSync(bigFile, JSON.stringify({ padding: "x".repeat(5_500_000) }));
+  await assert.rejects(() => readOverlaySource(bigFile), /overlay file exceeds 5000000 bytes/);
+
   // --- agents see leads as hypotheses, and receipts move with the overlay --------------
   const tools = new AtlasTools(built.bundle);
   const t: any = tools.threats(fn.id);
