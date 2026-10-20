@@ -225,6 +225,61 @@ export const AsiSnapshotSchema = z.object({
   classes: z.array(z.object({ id: z.string(), label: z.string(), mitigation: z.string(), url: z.string() })),
 });
 
+/** Threat-overlay layer: security LEADS reported by an external source (e.g. the
+ *  ASI Threat Graph service) and resolved onto nodes of THIS graph. The overlay
+ *  annotates the graph Code Atlas already owns; it never adds nodes or edges, and
+ *  it never colours a node as a verified weakness - only a finding graded
+ *  OBSERVED/TESTED on this repo can do that. A lead whose target cannot be
+ *  matched to exactly one node is kept as `unresolved`, never guessed. */
+// Shared with threatOverlay.ts's OverlayInputSchema, which enforces this at BUILD time. A bundle
+// handed straight to parseBundle (e.g. the MCP server reading a bundle file directly) bypasses
+// that build-time schema entirely, so the SAME cap must also live on the bundle schema itself —
+// otherwise an externally produced bundle could carry an unbounded lead/unresolved count.
+export const MAX_OVERLAY_ENTRIES = 5_000;
+/** An evidence item with blank source AND detail is nothing — EvidenceItem's schema permits both
+ *  to be empty strings, so `evidence.length > 0` alone is not proof of grounding. Shared by
+ *  resolveOverlay() (build time) and parseBundle (load time) so the downgrade rule can't be
+ *  bypassed through either path by padding the array with blank records. */
+export function hasMeaningfulEvidence(evidence: ReadonlyArray<{ source: string; detail: string }>): boolean {
+  return evidence.some((e) => e.source.trim() !== "" || e.detail.trim() !== "");
+}
+export const LeadStatusSchema = z.enum(["hypothetical", "inferred", "observed", "verified", "refuted"]);
+export const ThreatLeadSchema = z.object({
+  id: z.string(),
+  attackClassId: z.string(),                 // e.g. an ASI attack-class id
+  label: z.string(),                         // one-line class name from the source
+  nodeId: z.string(),                        // resolved Atlas node id (exactly one match)
+  target: z.string(),                        // the target string the source gave (kept for audit)
+  status: LeadStatusSchema,                  // as REPORTED by the source, never upgraded here
+  confidence: z.enum(["low", "medium", "high"]),
+  note: z.string(),
+  rule: z.string().optional(),               // the source's mapping rule, when it names one
+  url: z.string().optional(),                // http(s) link to the source's page for this class
+  evidence: z.array(z.object({ source: z.string(), detail: z.string() })).default([]),
+});
+export const UnresolvedLeadSchema = z.object({
+  id: z.string(),
+  attackClassId: z.string(),
+  description: z.string(),
+  target: z.string().optional(),
+  reason: z.string(),                        // why it has no node: not found / ambiguous / reported unresolved
+});
+export const ThreatOverlaySchema = z.object({
+  source: z.object({ identity: z.string(), ref: z.string(), asOf: z.string() }),
+  leads: z.array(ThreatLeadSchema).max(MAX_OVERLAY_ENTRIES),
+  unresolved: z.array(UnresolvedLeadSchema).max(MAX_OVERLAY_ENTRIES),
+  // `unresolved` is synthesized from TWO independently-capped input arrays (unresolvable lead
+  // targets + explicit unresolved entries), so resolveOverlay() can end up trimming it to fit this
+  // schema's own MAX_OVERLAY_ENTRIES cap. That trim must be PERSISTED here, in the saved bundle —
+  // not just in the transient build-time warning — or a bundle reloaded directly (parseBundle,
+  // bypassing buildAtlas) reports unresolvedTotal === MAX_OVERLAY_ENTRIES with no sign anything
+  // was dropped, and a caller paging via atlas_unresolved_leads would believe it saw everything.
+  unresolvedDropped: z.number().int().min(0).optional(),
+});
+export type ThreatLead = z.infer<typeof ThreatLeadSchema>;
+export type UnresolvedLead = z.infer<typeof UnresolvedLeadSchema>;
+export type ThreatOverlay = z.infer<typeof ThreatOverlaySchema>;
+
 /* ========================================================================== *
  * 4. BUNDLE  (top-level — assembles everything)
  * ========================================================================== */
@@ -256,6 +311,7 @@ export const AtlasBundleSchema = z.object({
   findings: z.array(FindingSchema).optional(),      // Security layer (absent => all GRAY)
   routes: z.array(RouteSchema).optional(),          // HTTP routes found in JS/TS code (absent on older bundles)
   asiSnapshot: AsiSnapshotSchema.optional(),        // pinned ASI classes referenced by findings
+  threatOverlay: ThreatOverlaySchema.optional(),     // external security leads resolved onto this graph (absent => none attached)
   // inlined source for the viewer (offline). `truncated`: only a prefix of the file
   // is inlined (the build caps size), so nodes past the cap have no inlined source.
   sources: z.array(z.object({ path: z.string(), code: z.string(), truncated: z.boolean().optional() })).optional(),
@@ -337,6 +393,32 @@ export function parseBundle(input: unknown): AtlasBundle {
       // If an ASI snapshot is present, a referenced class must be in it (snapshot stays consistent).
       if (f.asiRef && classIds.size && !classIds.has(f.asiRef.id))
         throw new Error(`Finding ${f.id} cites ASI class '${f.asiRef.id}' absent from the snapshot`);
+    }
+  }
+  if (bundle.threatOverlay) {
+    const seen = new Set<string>();
+    for (const l of bundle.threatOverlay.leads) {
+      if (!nodeIds.has(l.nodeId)) throw new Error(`Threat lead ${l.id} nodeId '${l.nodeId}' not in graph`);
+      if (seen.has(l.id)) throw new Error(`Duplicate threat lead id ${l.id}`);
+      seen.add(l.id);
+      if (l.url !== undefined && !/^https?:\/\//i.test(l.url)) throw new Error(`Threat lead ${l.id} url must be http(s)`);
+      // Same grounding rule resolveOverlay() enforces while BUILDING an overlay (observed/verified
+      // with no evidence is downgraded to inferred) must also hold for a bundle handed to us ready-
+      // made — e.g. the MCP server loads a bundle file directly via parseBundle, bypassing build()
+      // entirely. parseBundle only ever throws (it never mutates), so an ungrounded claim is rejected
+      // here rather than silently downgraded, same as a forged nodeId or a non-http(s) url above.
+      if ((l.status === "observed" || l.status === "verified") && !hasMeaningfulEvidence(l.evidence))
+        throw new Error(`Threat lead ${l.id} claims '${l.status}' with no evidence (must be downgraded to 'inferred')`);
+    }
+    // resolveOverlay() de-duplicates ids across BOTH leads and unresolved entries (one shared `seen`
+    // set for the whole overlay) before this re-validation ever runs via build.ts. A bundle handed to
+    // us directly (the MCP server's parseBundle path, bypassing build()) skips that de-dup, so without
+    // checking unresolved ids against the same `seen` set here too, a duplicate id reused across or
+    // within `unresolved` — or shared with a resolved lead — would pass, exposing contradictory or
+    // repeated records for one logical lead through atlas_unresolved_leads/atlas_overview.
+    for (const u of bundle.threatOverlay.unresolved) {
+      if (seen.has(u.id)) throw new Error(`Duplicate threat overlay id ${u.id}`);
+      seen.add(u.id);
     }
   }
   return bundle;

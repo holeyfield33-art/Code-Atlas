@@ -16,6 +16,7 @@
     --k-contains:#5a6b7d; --k-imports:#6aa2ff; --k-calls:#57c98a;
     --grade-red:#e5484d; --grade-yellow:#e0a356; --grade-green:#57c98a; --grade-gray:#56657a;
     --grade-lead:#8b7fb8;             /* unverified static lead — muted, subordinate to red */
+    --lead-ext:#e05fb4;               /* external threat-overlay lead (hypothesis) - distinct from graded findings */
     --grade-control:#6f9e8c;          /* control PRESENT but unverified — muted, subordinate to green */
     --radius:10px; --rail-h:112px;
     --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
@@ -27,6 +28,7 @@
     --fg:#141b24; --fg-dim:#45586b; --fg-faint:#7488a0;
     --accent:#0f9a93; --file:#b9751f; --func:#1f73c4;
     --k-contains:#8a99a9; --k-imports:#2f6fd0; --k-calls:#2f9c63;
+    --lead-ext:#b83b8e;
     color-scheme:light;
   }
   @media (prefers-color-scheme:light){
@@ -213,6 +215,20 @@
   .legend b{color:var(--fg-dim);font-weight:500}
   .legend i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle}
   .legend .ln{width:16px;height:0;border-top:2px solid;display:inline-block;margin-right:5px;vertical-align:middle}
+  .legend button.unres-chip{font:inherit;color:var(--fg-dim);background:transparent;border:1px dashed var(--fg-faint);border-radius:999px;padding:1px 9px;cursor:pointer}
+  .legend button.unres-chip[aria-expanded="true"]{border-style:solid;color:var(--fg)}
+  /* #tmPanel is the one positioned+scrolling container; .tm-panel children stack inside it via
+     flex, so opening the unresolved AND the not-drawn-leads panel at once no longer paints one
+     directly over the other (both used to be position:absolute at the same left/bottom). */
+  #tmPanel{position:absolute;left:max(16px,env(safe-area-inset-left,0px));bottom:64px;z-index:5;width:min(420px,90vw);max-height:46vh;overflow:auto;
+    display:flex;flex-direction:column;gap:8px}
+  .tm-panel{width:100%;background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--fg-dim)}
+  .tm-panel h3{margin:0 0 6px;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:var(--fg)}
+  .tm-panel .row{border-top:1px solid var(--edge);padding:7px 0}
+  .tm-panel code{font-family:var(--mono);font-size:11px;color:var(--fg)}
+  .lead-card{border:1px solid var(--edge);border-left:3px solid var(--lead-ext);border-radius:0 8px 8px 0;background:var(--panel-2);padding:10px 12px;margin:0 0 10px}
+  .lead-pill{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:#fff;background:var(--lead-ext);border-radius:999px;padding:2px 8px}
+  .lead-card.refuted{opacity:.6}
   .footmark{position:absolute;right:max(16px,env(safe-area-inset-right,0px));bottom:16px;z-index:4;
     font-family:var(--mono);font-size:10px;color:var(--fg-faint);text-align:right;pointer-events:none}
   .empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--fg-faint);
@@ -225,6 +241,11 @@
     .brand .rev{display:none}
     .legend{display:none}
     .inspector{width:100vw}
+    /* Threat Map's unresolved-leads/not-drawn-leads buttons are the only way to reach leads the
+       render cap hid, and they render as children of #legend — hiding the whole legend on mobile
+       left mobile users with no way to open either panel. updateLegend() adds this class only
+       when it actually put a button in the legend, so the rest of the legend stays hidden. */
+    .legend.has-controls{display:flex;max-width:none;width:calc(100vw - 32px)}
   }
 </style>
 
@@ -254,6 +275,7 @@
         <button data-mode="architecture" aria-pressed="true"><span class="n">01</span> Architecture</button>
         <button data-mode="learn" aria-pressed="false"><span class="n">02</span> Learn</button>
         <button data-mode="security" aria-pressed="false"><span class="n">03</span> Security</button>
+        <button data-mode="threatmap" aria-pressed="false"><span class="n">04</span> Threat Map</button>
       </div>
       <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Find a file or function…" autocomplete="off" aria-label="Search components"></label>
       <div class="filters" id="filters" aria-label="Edge filters">
@@ -430,8 +452,9 @@ function normalize(input){
   const course = (input && input.course) || null;
   const findings = (input && input.findings) || null;
   const asi = (input && input.asiSnapshot) || null;
+  const overlay = (input && input.threatOverlay) || null;
   const sources = (input && input.sources) || null;
-  return { graph, label, productName:name, course, findings, asi, sources, revision:(input&&input.repository&&input.repository.revision)||graph.revision||"" };
+  return { graph, label, productName:name, course, findings, asi, overlay, sources, revision:(input&&input.repository&&input.repository.revision)||graph.revision||"" };
 }
 
 const KIND_COLOR = k => k==="file" ? css("--file") : css("--func");
@@ -443,7 +466,8 @@ const state = {
   mode:"architecture", filters:{contains:true,imports:true,calls:true}, isSample:true,
   detail:"full", expanded:new Set(), shownNodes:0,   // bounded-loading: file-level collapse for large graphs
   course:null, lessons:new Map(), completed:new Set(),
-  findingByNode:new Map(), blast:new Set(), asi:null, hasFindings:false, sources:new Map()
+  findingByNode:new Map(), blast:new Set(), asi:null, hasFindings:false, sources:new Map(),
+  overlay:null, leadsByNode:new Map(), leadFiles:new Set(), showUnresolved:false, cappedLeadsPage:0
 };
 // Collapse to a file-level view automatically once the full graph gets big
 // enough that rendering/simulating every node would lag.
@@ -480,6 +504,46 @@ function gradeOf(nodeId){
   }
   if(state.blast.has(nodeId)) return "yellow";
   return "gray";
+}
+/* ---- Threat overlay: external leads (hypotheses) resolved onto this graph. ----
+   Leads never feed the Security grades; they only mark nodes in the Threat Map view. */
+function buildOverlay(overlay){
+  state.overlay = overlay && Array.isArray(overlay.leads) ? overlay : null;
+  state.leadsByNode = new Map(); state.leadFiles = new Set(); state.leadFileOf = new Map(); state.showUnresolved = false; state.showCappedLeads = false; state.cappedLeadsPage = 0;
+  if(!state.overlay) return;
+  for(const l of state.overlay.leads){
+    if(!state.byId.has(l.nodeId)) continue;   // a lead for a node not in this graph is ignored, never drawn
+    if(!state.leadsByNode.has(l.nodeId)) state.leadsByNode.set(l.nodeId, []);
+    state.leadsByNode.get(l.nodeId).push(l);
+    const nb = state.nbr && state.nbr.get(l.nodeId);
+    const fileId = nb && nb.container ? nb.container : (state.byId.get(l.nodeId).kind==="file" ? l.nodeId : null);
+    if(fileId){ state.leadFiles.add(fileId); state.leadFileOf.set(l.nodeId, fileId); }
+  }
+}
+function leadOn(id){
+  if(state.leadsByNode.has(id)) return true;
+  const n = state.byId.get(id);   // a collapsed file stands in for the functions it hides
+  return !!(n && n.kind==="file" && state.detail==="files" && !state.expanded.has(id) && state.leadFiles.has(id));
+}
+/* Resolved leads the render cap dropped — neither the lead's own node nor its containing file is
+   currently drawn, so nothing in the 3D view stands in for it (collapsed-file stand-in included).
+   Bounded itself: this is a list to click through, not a second unbounded render. */
+const CAPPED_LEADS_SHOWN = 30;
+function cappedLeadIds(){
+  if(!state.leadsByNode || !state.drawn) return [];
+  const out = [];
+  for(const id of state.leadsByNode.keys()){
+    if(state.drawn.has(id)) continue;
+    const fileId = state.leadFileOf && state.leadFileOf.get(id);
+    // A drawn containing file only stands in for its hidden functions' leads under the SAME
+    // condition leadOn() uses (collapsed, "files" detail, not individually expanded) — in Full
+    // detail, or once the file is expanded, a drawn file no longer represents them visually, so
+    // treating it as covered here would make those leads uncolored AND undiscoverable.
+    const fileStandsIn = fileId && state.drawn.has(fileId) && state.detail==="files" && !state.expanded.has(fileId);
+    if(fileStandsIn) continue;
+    out.push(id);
+  }
+  return out;
 }
 const DISMISSED = f => f.disposition && f.disposition.status==="false_positive";
 const ACCEPTED  = f => f.disposition && f.disposition.status==="accepted_risk";
@@ -589,6 +653,13 @@ function pinnedIds(){
   const add = k => { const id = state.byExploreKey && state.byExploreKey.get(k); if(id) s.add(id); };
   explore.recent.slice(0,30).forEach(add);
   for(const k in explore.items) if(explore.items[k].b) add(k);
+  // In Threat Map, a lead must stay discoverable even on a repo big enough to hit the render
+  // cap: a resolved lead with nothing pinning its node/file is otherwise silently dropped by
+  // collapseForDetail's degree ranking, with no list view to find it in afterward.
+  if(state.mode==="threatmap" && state.leadsByNode){
+    for(const id of state.leadsByNode.keys()) s.add(id);
+    if(state.leadFiles) for(const id of state.leadFiles) s.add(id);
+  }
   return s;
 }
 function fogged(id, base){
@@ -670,6 +741,11 @@ function goTo(id){
   const wasDrawn = state.drawn && state.drawn.has(id);
   ensureVisible(id);
   openInspector(id);
+  // Clicking a row in the "not drawn" panel pin-rescues that node (openInspector's render()
+  // branch, since wasDrawn was false going in), which changes state.drawn — refresh the legend
+  // so the panel drops the now-visible node and its count, instead of going stale until some
+  // unrelated action rebuilds it.
+  updateLegend();
   setTimeout(()=>focusNode(id), wasDrawn ? 0 : 900);   // a newly drawn node has no position until the layout settles
 }
 
@@ -721,7 +797,23 @@ function collapseForDetail(nodes, edges, opts){
     visNodes = ranked.slice(0, cap);
     if(pinned && pinned.size){            // what the person selected, bookmarked or recently opened stays drawn
       const have = new Set(visNodes.map(n=>n.id));
-      for(const n of beforeCap) if(pinned.has(n.id) && !have.has(n.id)){ visNodes.push(n); capped--; }
+      const byId = new Map(beforeCap.map(n=>[n.id,n]));
+      // Pinning can RESCUE a capped node, but only up to a bounded overflow: a pinned set driven
+      // by untrusted data (Threat Map pins every lead-bearing node/file, and an overlay can spread
+      // leads across thousands of files) must not be able to defeat `cap` and flood the simulation.
+      // Past this budget a pinned node just stays capped like any other — still searchable, still
+      // counted in `capped` so the UI's "withheld" note stays honest. Iterating `pinned` itself
+      // (not `beforeCap`) and in ITS insertion order matters: pinnedIds() adds state.selected
+      // first, so clicking a capped lead to bring it into view always wins the budget over the
+      // (much larger, lower-priority) bulk of Threat Map lead pins added after it.
+      const PIN_OVERFLOW = 300;
+      let added = 0;
+      for(const id of pinned){
+        if(added >= PIN_OVERFLOW) break;
+        if(have.has(id)) continue;
+        const n = byId.get(id); if(!n) continue;
+        visNodes.push(n); capped--; added++; have.add(id);
+      }
     }
   }
   const visSet = new Set(visNodes.map(n=>n.id));
@@ -758,6 +850,11 @@ function fgData(){
 }
 
 function nodeColor(node){
+  if(state.mode==="threatmap"){
+    if(state.selected===node.id) return css("--accent");
+    // mixHex (a real colour), not dim(): the 3D engine cannot parse a CSS color-mix() string and would paint the node black
+    return leadOn(node.id) ? css("--lead-ext") : mixHex(KIND_COLOR(node.kind), css("--bg"), 0.55);
+  }
   if(state.mode==="security") return css(state.hasFindings ? GRADECSS[gradeOf(node.id)] : "--grade-gray");
   if(state.mode==="learn" && state.selected){
     const near = neighborsOf(state.selected);
@@ -830,6 +927,12 @@ function toggleDetail(){
   state.detail = state.detail==="files" ? "full" : "files";
   if(state.detail==="files") state.expanded = new Set();   // start fully collapsed
   render();
+  // cappedLeadIds()/leadOn() both read state.detail and state.drawn (set by the render() above)
+  // to decide whether a collapsed file stands in for its hidden functions' leads — switching
+  // Files<->Full changes that answer for every lead-bearing file, so the legend's capped-lead
+  // count and any open panel need to refresh here too, same as every other render path that can
+  // change what counts as "drawn".
+  updateLegend();
 }
 
 /* ---- Inspector: plain-language DEFAULT, evidence BEHIND a toggle. --------- */
@@ -909,9 +1012,10 @@ function openInspector(id){
   const dot = document.getElementById("inspDot");
   dot.style.background = state.mode==="security"
     ? css(state.hasFindings ? GRADECSS[gradeOf(n.id)] : "--grade-gray")
-    : KIND_COLOR(n.kind);
+    : (state.mode==="threatmap" && leadOn(n.id) ? css("--lead-ext") : KIND_COLOR(n.kind));
 
   const security = state.mode==="security";
+  const threatmap = state.mode==="threatmap";
   const role = roleText(n);
   const body = `
     <p class="plain">${esc(plainText(n))}</p>
@@ -920,6 +1024,7 @@ function openInspector(id){
     <div class="connects"><h3>Connected components</h3>${connRows(n)}</div>
     ${sourceSection(n)}
     ${security?securitySection(n):""}
+    ${threatmap?threatMapSection(n):""}
     <div class="lessons"><h3>Course</h3><div id="lessonSlot"></div></div>
     <div class="evidence" id="evidence">
       <div class="ev-toggle" id="evToggle" role="button" tabindex="0" aria-expanded="false">
@@ -1086,6 +1191,120 @@ function securitySection(n){
   return `<div class="note security"><b>No finding on this component.</b> It was not flagged by the attached findings. Absence of a finding is not proof of safety.</div>`;
 }
 
+/* ---- Threat Map: external leads on this component ------------------------*/
+const LEAD_LABEL = { hypothetical:"HYPOTHETICAL LEAD", inferred:"INFERRED LEAD", observed:"REPORTED OBSERVED", verified:"REPORTED VERIFIED", refuted:"REFUTED" };
+// A lead's url is untrusted overlay text and can contain an unpaired UTF-16 surrogate (e.g. an
+// isolated \ud800) — syntactically a valid JS string, but encodeURI() THROWS on it (URIError:
+// URI malformed). The scheme check alone doesn't catch this, so without the try/catch a single
+// malformed url would abort rendering of the whole lead card/inspector, not just the link.
+function safeHref(u){ if(!/^https?:\/\//i.test(u||"")) return null; try{ return encodeURI(u); }catch(e){ return null; } }
+const EVIDENCE_ROWS_SHOWN = 20;
+const LEAD_CARDS_SHOWN = 30;
+const MEMBER_LEADS_SHOWN = 30;
+const UNRESOLVED_ROWS_SHOWN = 50;
+const UNRESOLVED_TEXT_CAP = 300;
+const LEAD_TEXT_CAP = 300;
+/* The viewer renders the raw bundle JSON, not an MCP tool response, so none of the server-side
+   field caps (boundLeadText/boundUnresolvedEntry in tools.ts) apply here — a valid overlay can
+   still carry a multi-hundred-KB description on one unresolved entry. Cap it client-side too. */
+function clip(s, n){ s = String(s||""); return s.length > n ? s.slice(0, n) + "…" : s; }
+function leadCard(l){
+  // l.url is unclipped overlay text — safeHref() only checks the scheme and then runs the WHOLE
+  // value through encodeURI() into the href attribute, so an oversized url would still produce
+  // oversized markup. Clipping it the way every other field is clipped (append "…" to a prefix)
+  // would navigate somewhere ELSE entirely while still looking like the source's own link — worse
+  // than no link. So an oversized url is omitted as a link outright; only one within the safe
+  // bound is ever turned into an href.
+  const href = (l.url && String(l.url).length <= LEAD_TEXT_CAP) ? safeHref(l.url) : null;
+  // The overlay document cap (5MB/5,000 entries) bounds the WHOLE document, not evidence items on
+  // ONE lead — a valid sub-5MB overlay could still put tens of thousands of tiny records here.
+  // Mapping an unbounded array into <li>s synchronously on open would stall/freeze the inspector.
+  const evItems = l.evidence || [];
+  // Row/card counts (EVIDENCE_ROWS_SHOWN, LEAD_CARDS_SHOWN) bound how many items render, not how
+  // long any ONE field is — a valid overlay can still put most of its 5MB document budget into a
+  // single lead's note/label/rule or one evidence item's source/detail. Clip every text field too.
+  const ev = evItems.slice(0, EVIDENCE_ROWS_SHOWN).map(e=>`<li><b>${esc(clip(e.source, LEAD_TEXT_CAP))}</b> ${esc(clip(e.detail, LEAD_TEXT_CAP))}</li>`).join("")
+    + (evItems.length > EVIDENCE_ROWS_SHOWN ? `<li>+ ${evItems.length - EVIDENCE_ROWS_SHOWN} more evidence item(s) not shown</li>` : "");
+  const untested = (l.status==="hypothetical"||l.status==="inferred") ? `<p class="sec-note"><b>Still needs testing:</b> nothing here has reproduced this. Trace the call path above and confirm at runtime before treating it as a finding.</p>` : "";
+  return `<div class="lead-card ${l.status==="refuted"?"refuted":""}">
+    <div class="sec-head"><span class="lead-pill">${esc(LEAD_LABEL[l.status]||l.status)}</span><span class="grade-ev">${esc(l.confidence)} confidence</span></div>
+    <p class="sec-title">${esc(clip(l.attackClassId, LEAD_TEXT_CAP))} · ${href?`<a class="asi-a" href="${esc(href)}" target="_blank" rel="noopener">${esc(clip(l.label, LEAD_TEXT_CAP))} ↗</a>`:esc(clip(l.label, LEAD_TEXT_CAP))}</p>
+    <p class="sec-expl">${esc(clip(l.note, LEAD_TEXT_CAP))}</p>
+    ${l.rule?`<p class="sec-note">Mapping rule: <code>${esc(clip(l.rule, LEAD_TEXT_CAP))}</code></p>`:""}
+    ${ev?`<ul class="sec-note">${ev}</ul>`:""}
+    ${untested}</div>`;
+}
+function threatMapSection(n){
+  const o = state.overlay;
+  if(!o){
+    return `<div class="note security"><b>No threat overlay attached.</b> Nothing in this view is assessed. Build with <code>--asi-overlay</code> to attach external leads; see docs/threat-overlay.md.</div>`;
+  }
+  const own = state.leadsByNode.get(n.id) || [];
+  const members = n.kind==="file" ? [...state.leadsByNode.entries()].filter(([id])=>{ const nb=state.nbr.get(id); return nb && nb.container===n.id; }) : [];
+  // source.identity/ref/asOf are untrusted overlay text like everything else here (up to the
+  // 5MB document limit on any one field) — this stamp renders on EVERY component in Threat Map
+  // mode, including one with no leads, so it needs the same clip the per-lead fields already get.
+  const stamp = `<p class="asi-stamp">Source: ${esc(clip(o.source.identity, LEAD_TEXT_CAP))} @ ${esc(clip(o.source.ref, LEAD_TEXT_CAP))} · as of ${esc(clip(o.source.asOf, LEAD_TEXT_CAP))}. A lead is a hypothesis to investigate, not proof of a vulnerability.</p>`;
+  if(!own.length && !members.length){
+    return `<div class="note security"><b>No lead on this component.</b> The overlay source reported nothing here. Absence of a lead is not proof of safety.</div>${stamp}`;
+  }
+  // Leads can resolve to thousands of distinct functions inside one file; LEAD_CARDS_SHOWN only
+  // bounds leads attached to the file itself, so this member list needs its own cap.
+  const shownMembers = members.slice(0, MEMBER_LEADS_SHOWN);
+  const memberOverflow = members.length > MEMBER_LEADS_SHOWN
+    ? `, + ${members.length - MEMBER_LEADS_SHOWN} more function(s) with leads not shown` : "";
+  const memberRows = members.length
+    ? `<div class="conn-row"><span class="lab">leads in this file</span><span class="vals">${shownMembers.map(([id,ls])=>`<b data-goto="${esc(id)}">${esc(labelFor(id))}</b> (${ls.length})`).join(", ")}${memberOverflow}</span></div>` : "";
+  // The overlay schema permits up to 5,000 leads total, and nothing stops them all landing on
+  // one node — render only the first LEAD_CARDS_SHOWN as full cards so opening such a node can't
+  // synchronously build tens of thousands of DOM elements and freeze the inspector.
+  const shown = own.slice(0, LEAD_CARDS_SHOWN);
+  const overflowNote = own.length > LEAD_CARDS_SHOWN
+    ? `<p class="sec-note">+ ${own.length - LEAD_CARDS_SHOWN} more lead(s) on this component not shown.</p>` : "";
+  return `<div class="sec">${shown.map(leadCard).join("")}${overflowNote}${memberRows}${stamp}</div>`;
+}
+function unresolvedPanel(){
+  const o = state.overlay; if(!o || !state.showUnresolved) return "";
+  const all = o.unresolved||[];
+  // The overlay cap allows up to 5,000 unresolved entries, and one entry's description can run
+  // to most of the 5MB document limit on its own — bound both the row count and each row's text
+  // so opening this panel can't build an unbounded innerHTML assignment.
+  const rows = all.slice(0, UNRESOLVED_ROWS_SHOWN).map(u=>`<div class="row"><code>${esc(clip(u.attackClassId, UNRESOLVED_TEXT_CAP))}</code> · ${esc(clip(u.description, UNRESOLVED_TEXT_CAP))}<br><span style="color:var(--fg-faint)">${u.target?`target <code>${esc(clip(u.target, UNRESOLVED_TEXT_CAP))}</code> · `:""}${esc(clip(u.reason, UNRESOLVED_TEXT_CAP))}</span></div>`).join("");
+  const overflow = all.length > UNRESOLVED_ROWS_SHOWN ? `<p>+ ${all.length - UNRESOLVED_ROWS_SHOWN} more unresolved entry(ies) not shown.</p>` : "";
+  // `all.length` is only what the build-time cap (MAX_OVERLAY_ENTRIES) let through; when the
+  // combined synthesized+explicit unresolved count exceeded it, resolveOverlay() persists how
+  // many it had to drop on top of that as `unresolvedDropped` — surface it here too, or the
+  // panel's own count looks complete even though more records were discarded and are gone for
+  // good (unlike the `rows` cap above, there's no page/tool that can recover them).
+  const dropped = Number(o.unresolvedDropped) || 0;
+  const droppedNote = dropped > 0 ? `<p>${dropped} additional unresolved entry(ies) were dropped at build time and cannot be recovered.</p>` : "";
+  return `<div class="tm-panel" role="region" aria-label="Unresolved leads"><h3>Unresolved (${all.length})</h3><p>These could not be placed on exactly one component of this graph. They are unknown, not cleared.</p>${rows||"<p>None.</p>"}${overflow}${droppedNote}</div>`;
+}
+/* A resolved lead the render cap dropped is otherwise invisible in the 3D view with no way to
+   find it (the gap Codex flagged after the pin-overflow cap was added). This list is the find-it
+   path: bounded itself (CAPPED_LEADS_SHOWN per page) so a huge overlay can't turn the fix into the
+   bug. Zoom/search alone can't reach a node outside the render cap (zooming doesn't change the
+   capped set, and search requires already knowing the omitted node's name) — so beyond the first
+   page this paginates with Prev/Next instead of just naming a dead-end workaround. */
+function cappedLeadsPanel(){
+  if(!state.showCappedLeads) return "";
+  const ids = cappedLeadIds(); if(!ids.length) return "";
+  const pageCount = Math.max(1, Math.ceil(ids.length / CAPPED_LEADS_SHOWN));
+  const page = Math.min(Math.max(Math.floor(state.cappedLeadsPage) || 0, 0), pageCount - 1);
+  state.cappedLeadsPage = page;   // clamp persists, so a shrinking list (re-render) can't strand the page past its end
+  const start = page * CAPPED_LEADS_SHOWN;
+  const rows = ids.slice(start, start + CAPPED_LEADS_SHOWN).map(id=>{
+    const n = state.byId.get(id); if(!n) return "";
+    return `<button class="row" data-goto="${esc(id)}" style="display:block;width:100%;text-align:left;background:none;border:none;cursor:pointer;color:inherit;font:inherit">${esc(n.label)}<br><span style="color:var(--fg-faint)">${esc(n.evidence&&n.evidence.path||"")}</span></button>`;
+  }).join("");
+  const nav = pageCount > 1 ? `<div class="row" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+    <button data-page-delta="-1" ${page<=0?"disabled":""}>Prev</button>
+    <span style="color:var(--fg-faint)">page ${page+1} / ${pageCount}</span>
+    <button data-page-delta="1" ${page>=pageCount-1?"disabled":""}>Next</button>
+  </div>` : "";
+  return `<div class="tm-panel" role="region" aria-label="Leads outside the render cap"><h3>Not currently drawn (${ids.length})</h3><p>The render cap withheld these — click one to bring it into view, or page through the full list below. Absence from the 3D view is not absence of a lead.</p>${rows}${nav}</div>`;
+}
+
 /* ---- grounded Break & Fix -------------------------------------------------*/
 /* regex checks are NOT executed: a caller-supplied pattern on a learner answer
    is an unbounded backtracking (ReDoS) surface with no safe bound in a standalone
@@ -1215,6 +1434,7 @@ function loadGraph(raw, {sample=false}={}){
   state.sources = new Map(((norm.sources)||[]).map(s=>[s.path,s.code]));
   state.truncatedSources = new Set(((norm.sources)||[]).filter(s=>s.truncated).map(s=>s.path));
   buildFindings(norm.findings);
+  buildOverlay(norm.overlay);
   loadDone();
   state.exploreProject = sample ? "sample" : (norm.label || norm.revision || "g");
   state.nodeObjs = null; state.drawn = new Set();
@@ -1229,6 +1449,12 @@ function loadGraph(raw, {sample=false}={}){
   document.getElementById("sampleBadge").textContent = "Sample graph — open a folder or load a bundle";
   closeInspector();
   render();
+  // AFTER render(), not before: updateLegend()'s Threat Map branch reads state.drawn (which
+  // render()/fgData() just set for the NEW graph) to list leads the cap dropped. Calling it any
+  // earlier would read the PREVIOUS bundle's drawn set — matching none of the new node ids — and
+  // misreport every lead as capped. This also re-covers the original bug (a bundle loaded while
+  // already in Threat Map mode leaving the legend/unresolved panel on the previous overlay).
+  updateLegend();
   const empty = document.getElementById("empty");
   empty.hidden = norm.graph.nodes.length > 0;
   empty.textContent = "No graph nodes found in this project.";
@@ -1301,11 +1527,54 @@ function buildFG(){
 function applyMode(m){
   state.mode=m;
   document.querySelectorAll(".modes button").forEach(b=>b.setAttribute("aria-pressed", String(b.dataset.mode===m)));
+  // Always render() here, even with a node already selected: pinnedIds() depends on state.mode
+  // (Threat Map pins lead nodes/files that other modes don't), so a mode switch changes which
+  // nodes the render cap keeps. openInspector()'s wasDrawn-branch shortcut (refreshColors() only,
+  // no render()) is for a plain selection change within the SAME mode; calling render() first here
+  // means openInspector sees the freshly-rendered node as already drawn and just recolors it,
+  // instead of skipping the re-render this mode switch actually needs.
+  render();
+  if(state.selected) openInspector(state.selected);
+  // updateLegend() AFTER render(), same reason as loadGraph: its Threat Map branch reads
+  // state.drawn, which render()/fgData() sets. Calling it first would read the drawn set from
+  // before this mode switch's pin rescue ran, mislabeling freshly-rescued leads as capped.
   updateLegend();
-  if(state.selected) openInspector(state.selected); else render();
 }
 function updateLegend(){
   const el=document.getElementById("legend"); if(!el) return;
+  const old = document.getElementById("tmPanel"); if(old) old.remove();
+  el.classList.remove("has-controls"); // reset; the threatmap branch below re-adds it if it puts a button here
+  if(state.mode==="threatmap"){
+    const o = state.overlay;
+    const cappedCount = o ? cappedLeadIds().length : 0;
+    // build.ts records a failed/unreachable overlay source as a "threat-overlay"-stage bundle
+    // diagnostic (bundle-level, kept on state.bundle since loadGraph() stores the raw bundle) —
+    // without reading it here, "no threat overlay attached" gives no reason why, and the one-time
+    // CLI warning at build time is long gone by the time anyone opens the saved bundle/viewer.
+    const overlayDiag = !o && state.bundle && Array.isArray(state.bundle.diagnostics)
+      ? state.bundle.diagnostics.find(d=>d && d.stage==="threat-overlay") : null;
+    el.innerHTML = o
+      ? `<span><i style="background:var(--file)"></i><b>code structure</b></span>
+         <span><i class="sq" style="background:var(--lead-ext)"></i><b>security lead (hypothesis)</b></span>
+         <button class="unres-chip" id="unresBtn" aria-expanded="${state.showUnresolved}">unresolved (${(o.unresolved||[]).length}${Number(o.unresolvedDropped)>0?`+${Number(o.unresolvedDropped)}`:""})</button>
+         ${cappedCount ? `<button class="unres-chip" id="cappedLeadsBtn" aria-expanded="${state.showCappedLeads}">not drawn (${cappedCount})</button>` : ""}`
+      : `<span><i class="sq" style="background:var(--grade-gray)"></i><b>no threat overlay attached</b>${overlayDiag ? ` — ${esc(clip(overlayDiag.message, 200))}` : ""}</span>`;
+    const btn = document.getElementById("unresBtn");
+    if(btn) btn.addEventListener("click",()=>{ state.showUnresolved=!state.showUnresolved; updateLegend(); });
+    const cappedBtn = document.getElementById("cappedLeadsBtn");
+    if(cappedBtn) cappedBtn.addEventListener("click",()=>{ state.showCappedLeads=!state.showCappedLeads; updateLegend(); });
+    // These buttons are the only way to reach leads the render cap hid, on ANY screen size — keep
+    // them reachable on mobile even though the rest of the legend stays hidden there (CSS above).
+    if(btn || cappedBtn) el.classList.add("has-controls");
+    const panels = (o && state.showUnresolved ? unresolvedPanel() : "") + (cappedCount && state.showCappedLeads ? cappedLeadsPanel() : "");
+    if(panels){
+      const host = document.createElement("div"); host.id="tmPanel"; host.innerHTML = panels;
+      host.querySelectorAll("[data-goto]").forEach(b=>b.addEventListener("click",()=>goTo(b.getAttribute("data-goto"))));
+      host.querySelectorAll("[data-page-delta]").forEach(b=>b.addEventListener("click",()=>{ state.cappedLeadsPage = (state.cappedLeadsPage||0) + Number(b.getAttribute("data-page-delta")); updateLegend(); }));
+      el.parentNode.appendChild(host);
+    }
+    return;
+  }
   if(state.mode==="security"){
     el.innerHTML = state.hasFindings
       ? `<span><i class="sq" style="background:var(--grade-red)"></i><b>weakness</b></span>

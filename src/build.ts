@@ -16,15 +16,20 @@ import { redactSecrets } from "./scanner/redact.js";
 import { extractVueScript } from "./scanner/vue.js";
 import { buildMultiLangGraph, type MultiLang } from "./scanner/multilang.js";
 import { generateCourse, assembleBundle } from "./generator/generator.js";
-import type { AtlasGraph, AtlasBundle } from "./schema.js";
+import { readOverlaySource, resolveOverlay } from "./threatOverlay.js";
+import { parseBundle, type AtlasGraph, type AtlasBundle } from "./schema.js";
 
-export interface BuildOptions { product?: string; rules?: string; findingsReport?: string; security?: boolean; maxFiles?: number; maxBytes?: number; repoLabel?: string; include?: string[]; skip?: string[]; }
+export interface BuildOptions { product?: string; rules?: string; findingsReport?: string; security?: boolean; maxFiles?: number; maxBytes?: number; repoLabel?: string; include?: string[]; skip?: string[]; asiOverlay?: string; }
+/** What happened to an optional --asi-overlay: attached counts, or why it was left off. */
+export interface OverlayReport { attached: boolean; leads: number; unresolved: number; warnings: string[]; error?: string; }
 export interface BuildResult {
   bundle: AtlasBundle;
   langSummary: string;
   redactionCount: number;
   findingsCount: number;
   unmappedReport: number;
+  /** Present only when an overlay source was given. */
+  overlay?: OverlayReport;
 }
 
 /** Concatenate backend graphs into one AtlasGraph (ids are unique per backend). */
@@ -150,11 +155,34 @@ export async function buildAtlas(rootInput: string, opts: BuildOptions = {}): Pr
   // HTTP routes registered in JS/TS code (not .vue shims): the link from the map to live traffic.
   const routes = extractRoutes(revision, jsSources.filter((s) => !s.hashCode), graph);
   if (routes.length) bundle.routes = routes;
+  // Optional external threat leads (ASI). A broken or unreachable source never fails the
+  // build: the map is built without it and the reason is recorded in the bundle diagnostics.
+  let overlay: OverlayReport | undefined;
+  if (opts.asiOverlay) {
+    try {
+      const r = resolveOverlay(graph, await readOverlaySource(opts.asiOverlay));
+      bundle.threatOverlay = r.overlay;
+      parseBundle(bundle);   // re-validate: every lead must resolve to a node of this graph
+      overlay = { attached: true, leads: r.overlay.leads.length, unresolved: r.overlay.unresolved.length, warnings: r.warnings };
+      // r.warnings is a BuildResult-level field, not saved into the bundle file itself — so a
+      // bundle reloaded directly (e.g. by the MCP server via parseBundle, bypassing buildAtlas)
+      // would show unresolvedTotal === MAX_ENTRIES with no sign anything was dropped, if the
+      // truncation warning never reached a field that actually persists. Mirror it into
+      // bundle.diagnostics (which IS part of the saved bundle) so atlas_overview's `coverage`/
+      // diagnostics surface it even outside this one build call.
+      for (const w of r.warnings) if (/dropped/.test(w) && /unresolved/.test(w)) bundle.diagnostics.push({ stage: "threat-overlay", message: w });
+    } catch (e) {
+      delete bundle.threatOverlay;
+      const error = e instanceof Error ? e.message : String(e);
+      bundle.diagnostics.push({ stage: "threat-overlay", message: `overlay not attached: ${error}` });
+      overlay = { attached: false, leads: 0, unresolved: 0, warnings: [], error };
+    }
+  }
   const langSummary = [
     byLang.js.length ? `${byLang.js.length} js/ts` : "",
     byLang.vue.length ? `${byLang.vue.length} vue` : "",
     ...Object.entries(perLangCounts).map(([l, c]) => `${c} ${l}`),
   ].filter(Boolean).join(", ");
 
-  return { bundle, langSummary, redactionCount, findingsCount: security?.findings?.length ?? 0, unmappedReport };
+  return { bundle, langSummary, redactionCount, findingsCount: security?.findings?.length ?? 0, unmappedReport, ...(overlay ? { overlay } : {}) };
 }

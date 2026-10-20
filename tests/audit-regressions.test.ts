@@ -72,11 +72,14 @@ const script = html.slice(html.lastIndexOf("<script>") + 8, html.lastIndexOf("</
 const el = new Map<string, any>();
 const element = (id: string) => {
   if (!el.has(id)) el.set(id, { hidden: false, textContent: "", innerHTML: "", style: {}, classList: { remove() {}, add() {} },
-    addEventListener() {}, querySelectorAll: () => [], setAttribute() {} });
+    addEventListener() {}, querySelectorAll: () => [], setAttribute() {},
+    // loadGraph calling updateLegend() exercises document.getElementById("tmPanel")?.remove()
+    // on every load now, not just a mode switch — see tests/viewer-loading.test.ts for the same fix.
+    remove() {}, parentNode: { appendChild() {} } });
   return el.get(id);
 };
 const ctx = vm.createContext({
-  document: { getElementById: element, documentElement: {} },
+  document: { getElementById: element, documentElement: {}, createElement: () => ({ innerHTML: "", querySelectorAll: () => [] }) },
   getComputedStyle: () => ({ getPropertyValue: () => "" }),
   window: { matchMedia: () => ({ matches: false }), addEventListener() {} },
   setTimeout() {}, console, localStorage: { getItem: () => null, setItem() {} },

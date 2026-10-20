@@ -58,6 +58,16 @@ const rr = run(`return atlas.routes({ limit: 5 });`);
 assert.strictEqual(rr.ok, true, "routes() runs in the sandbox");
 assert.deepStrictEqual(rr.result, tools.routes({ limit: 5 }), "sandbox routes() matches the direct call");
 
+// 2d) each of findings/threatLeads/routes has an optional filter (default {}) on the host side —
+// calling the natural no-filter form from inside the sandbox must hit that default, not throw.
+// (JSON.stringify([undefined]) -> "[null]"; the host's JSON.parse then hands the method a literal
+// null, which bypasses its JS default parameter — the wrapper must default the argument first.)
+for (const [name, direct] of [["findings", tools.findings()], ["threatLeads", tools.threatLeads()], ["unresolvedLeads", tools.unresolvedLeads()], ["routes", tools.routes()]] as const) {
+  const r = run(`return atlas.${name}();`);
+  assert.strictEqual(r.ok, true, `atlas.${name}() with no argument runs in the sandbox, not { ok:false }`);
+  assert.deepStrictEqual(r.result, direct, `atlas.${name}() with no argument matches the direct no-filter call`);
+}
+
 // 3) reproducible receipt: same code+bundle => same hash; different code => different hash
 const a = run(`return 1 + 1;`), b = run(`return 1 + 1;`), c = run(`return 2 + 2;`);
 assert.strictEqual(a.receipt.hash, b.receipt.hash, "same code+bundle => same receipt");

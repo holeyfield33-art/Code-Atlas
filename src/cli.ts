@@ -16,6 +16,7 @@ import { buildAtlas } from "./build.js";
 import { renderViewer } from "./viewer.js";
 import { serveAtlas } from "./server.js";
 import { planShards } from "./scanner/shards.js";
+import { safeLog } from "./logSanitize.js";
 
 /** Comma-separated CLI list -> trimmed non-empty entries (undefined when absent). */
 const csv = (v?: string): string[] | undefined => (v ? v.split(",").map((x) => x.trim()).filter(Boolean) : undefined);
@@ -34,15 +35,16 @@ program
   .option("--product <name>", "product name shown in the viewer", "Code Atlas")
   .option("--rules <file>", "custom rule pack (JSON) for the findings scanner")
   .option("--findings-report <file>", "a vibe-explainer --json report to map onto the graph")
+  .option("--asi-overlay <file|url>", "optional threat-lead overlay (see docs/threat-overlay.md); a bad source is reported and skipped, never fatal")
   .option("--no-security", "skip the findings scanner")
   .option("--max-files <n>", "max files to analyze (default 2000); omitted files are counted in coverage", (v) => parseInt(v, 10))
   .option("--max-bytes <n>", "max bytes per file (default 200000)", (v) => parseInt(v, 10))
   .option("--label <name>", "project name shown in the bundle (default: the folder name)")
   .option("--include <dirs>", "scan only these root-relative folders (comma-separated; `dir/.` = that folder's own files only); paths stay root-relative")
   .option("--skip <dirs>", "leave these out (comma-separated; a bare name such as `spec` matches at any depth, `ee/spec` is a root-relative path)")
-  .action(async (path: string, opts: { out: string; product: string; rules?: string; findingsReport?: string; security: boolean; maxFiles?: number; maxBytes?: number; label?: string; include?: string; skip?: string }) => {
-    const { bundle, langSummary, redactionCount, findingsCount, unmappedReport } =
-      await buildAtlas(path, { product: opts.product, rules: opts.rules, findingsReport: opts.findingsReport, security: opts.security, maxFiles: opts.maxFiles, maxBytes: opts.maxBytes, repoLabel: opts.label, include: csv(opts.include), skip: csv(opts.skip) });
+  .action(async (path: string, opts: { out: string; product: string; rules?: string; findingsReport?: string; security: boolean; asiOverlay?: string; maxFiles?: number; maxBytes?: number; label?: string; include?: string; skip?: string }) => {
+    const { bundle, langSummary, redactionCount, findingsCount, unmappedReport, overlay } =
+      await buildAtlas(path, { product: opts.product, rules: opts.rules, findingsReport: opts.findingsReport, security: opts.security, asiOverlay: opts.asiOverlay, maxFiles: opts.maxFiles, maxBytes: opts.maxBytes, repoLabel: opts.label, include: csv(opts.include), skip: csv(opts.skip) });
 
     mkdirSync(opts.out, { recursive: true });
     writeFileSync(join(opts.out, "atlas.bundle.json"), JSON.stringify(bundle, null, 2));
@@ -57,6 +59,11 @@ program
     console.log(`  files: ${langSummary}`);
     console.log(`  ${g.nodes.length} nodes (${fns} functions), ${g.edges.length} edges, ` +
       `${bundle.course?.lessons.length ?? 0} lessons, ${findingsCount} findings, ${g.diagnostics.length} diagnostics`);
+    if (overlay) {
+      if (overlay.attached) console.log(`  threat overlay: ${overlay.leads} lead(s) attached, ${overlay.unresolved} unresolved`);
+      else console.error(`  WARNING: threat overlay not attached: ${safeLog(overlay.error ?? "")}`);
+      for (const w of overlay.warnings) console.error(`  overlay warning: ${safeLog(w)}`);
+    }
     if (redactionCount) console.log(`  redacted ${redactionCount} secret-like value(s) from inlined source`);
     const cov = bundle.coverage;
     if (cov) {

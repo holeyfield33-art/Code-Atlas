@@ -78,7 +78,7 @@ const AGENT_GUIDE = [
   "",
   "Start: atlas_overview. Read `repository` (label, sourceCommit) and `coverage`: the map may be PARTIAL (a file cap, a shard of a large repo, skipped folders). A file that is not found may simply not be in this map, so check coverage before concluding it does not exist. The sourceCommit says which checkout was scanned; compare it with the instance you are testing.",
   "Find things: atlas_search takes identifier-like words or path fragments ('rotate_service', 'lib/api/projects', 'zoekt cache'), not sentences. It returns ids and locations only. Then atlas_get_source for the code, atlas_neighbors for callers / callees / imports.",
-  "Many questions at once: atlas_exec runs read-only JavaScript against the map in one call. Beyond search/neighbors it has atlas.findings({kind, rule, path, limit}) to list findings, and atlas.routes({method, path, file}) to list the HTTP routes found in JS/TS code with their handlers. Prefer one atlas_exec join over many tool calls.",
+  "Many questions at once: atlas_exec runs read-only JavaScript against the map in one call. Beyond search/neighbors it has atlas.findings({kind, rule, path, limit, offset}) to list findings, and atlas.routes({method, path, file}) to list the HTTP routes found in JS/TS code with their handlers. Prefer one atlas_exec join over many tool calls.",
   "",
   "Honesty rules: a finding is a STATIC lead (a risky shape), never proof of a vulnerability. Python and Ruby call edges are matched by name and marked inferred. Unresolved relationships are diagnostics, not edges. Absence of a finding is not evidence of safety. Routes cover JS/TS only, and a mount prefix is not applied.",
   "If the code you need is not in the map, read it from the source checkout instead; do not guess.",
@@ -112,8 +112,29 @@ export function buildServer(ctx: AtlasCtx, opts: BuildServerOptions = {}): McpSe
     async ({ task, budgetTokens }) => ok(ctx.tools.contextPack(task, budgetTokens)));
 
   server.registerTool("atlas_threats",
-    { title: "Threats for a component", description: "Findings (with grade, ASI reference, and any triage disposition) on a node id or file path. Grade reflects how it was verified; absence is not proof of safety.", inputSchema: { ref: z.string() }, annotations: RO },
+    { title: "Threats for a component", description: "Findings (with grade, ASI reference, and any triage disposition) on a node id or file path, plus any external overlay `leads` (hypotheses, never findings). Grade reflects how it was verified; absence is not proof of safety.", inputSchema: { ref: z.string() }, annotations: RO },
     async ({ ref }) => ok(ctx.tools.threats(ref)));
+
+  server.registerTool("atlas_threat_leads",
+    {
+      title: "List overlay leads",
+      description: "Resolved external-overlay leads without knowing a node id or path first — e.g. \"review all overlay leads\". Compact rows with node references; filter by attack class, status, confidence, or a path fragment. Row-capped per call; pass the response's nextOffset back as `offset` to page through the rest. Leads are hypotheses, never findings.",
+      inputSchema: {
+        attackClassId: z.string().optional(), status: z.string().optional(), confidence: z.string().optional(),
+        path: z.string().optional(), limit: z.number().int().min(1).max(1000).optional(), offset: z.number().int().min(0).optional(),
+      },
+      annotations: RO,
+    },
+    async (filter) => ok(ctx.tools.threatLeads(filter)));
+
+  server.registerTool("atlas_unresolved_leads",
+    {
+      title: "List unresolved overlay entries",
+      description: "External-overlay entries that could not be matched to exactly one component — unknown, not cleared. atlas_overview's threatOverlay.unresolved is capped at 50 for a cheap first look; this pages through all of them. Pass the response's nextOffset back as `offset` to continue.",
+      inputSchema: { limit: z.number().int().min(1).max(1000).optional(), offset: z.number().int().min(0).optional() },
+      annotations: RO,
+    },
+    async (filter) => ok(ctx.tools.unresolvedLeads(filter)));
 
   server.registerTool("atlas_course",
     { title: "Lesson for a component", description: "The grounded lesson + Break & Fix attached to a node, if any.", inputSchema: { id: z.string() }, annotations: RO },
@@ -143,7 +164,7 @@ export function buildServer(ctx: AtlasCtx, opts: BuildServerOptions = {}): McpSe
       title: "Run a read-only query against the atlas",
       description:
         "ONE programmable read tool. Write JavaScript that calls a frozen, read-only `atlas` API and `return`s a value — filter, join, aggregate, or traverse in a single call instead of chaining fixed tools. " +
-        "Available (all read-only): atlas.overview(), atlas.search(query, limit?), atlas.getNode(id), atlas.getSource(id), atlas.neighbors(id, kinds?), atlas.contextPack(task, budgetTokens?), atlas.threats(ref), atlas.findings({kind?, grade?, rule?, path?, triaged?, limit?}) (list findings without knowing an id), atlas.routes({method?, path?, file?, limit?}) (HTTP routes found in JS/TS code, with their handlers and leads), atlas.course(id). " +
+        "Available (all read-only): atlas.overview(), atlas.search(query, limit?), atlas.getNode(id), atlas.getSource(id), atlas.neighbors(id, kinds?), atlas.contextPack(task, budgetTokens?), atlas.threats(ref), atlas.findings({kind?, grade?, rule?, path?, triaged?, limit?, offset?}) (list findings without knowing an id; page with offset=nextOffset; rows are compact — use atlas.finding(id) for one finding's full explanation/evidence/blastRadius), atlas.finding(id) (one finding's full detail by id — the only way to reach it once a busy ref has more findings than atlas.threats()'s row cap; returns an ambiguity error if the id is not unique in the bundle), atlas.threatLeads({attackClassId?, status?, confidence?, path?, limit?, offset?}) (list resolved overlay leads without knowing an id; page with offset=nextOffset; each row's evidence is capped at 50), atlas.lead(id, {limit?, offset?}) (one resolved lead's full detail by id, with its evidence array paginated past the 50-row cap), atlas.unresolvedLeads({limit?, offset?}) (page through EVERY unresolved overlay entry; atlas.overview()'s copy is capped at 50), atlas.routes({method?, path?, file?, limit?}) (HTTP routes found in JS/TS code, with their handlers and leads), atlas.course(id). " +
         "The code runs in an isolate with NO network, filesystem, require, import, process, or timers — only `atlas`. There is no way to write or mutate the bundle from here. A wall-clock timeout and memory cap bound every run, and the response carries a replayable receipt (sha256 of code + bundle). " +
         "Example: `const o = atlas.overview(); return o.entryPoints.map(e => ({ id: e.id, threats: atlas.threats(e.id).findings.length }));`",
       inputSchema: {
