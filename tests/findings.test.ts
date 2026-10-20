@@ -91,3 +91,32 @@ console.log(`findings.test: ${findings.length} findings (${byRule("r-").length} 
 }
 
 console.log("findings.test: sink-alias regression (promisify(execFile) -> ghAsync) passes");
+
+// Regression (Codex review, PR #46): a module-level alias must not resolve through a
+// same-named FUNCTION PARAMETER, and must not leak out of the function it was declared in.
+{
+  // (a) `function run(check) { exec(cmd); check(); }` with a module-level `const check = validate`:
+  // `check` is run's OWN parameter, not the module binding — must not produce a false
+  // c-input-validation control (or any other finding) on `run`.
+  const shadowSources: SourceFile[] = [{
+    path: "shadow.ts",
+    code: ["const check = validate;", "export function run(check) { exec(cmd); check(); }"].join("\n"),
+  }];
+  const shadowFindings = scan(buildGraph("shadow@test", shadowSources), shadowSources).findings;
+  assert.strictEqual(shadowFindings.length, 0, "a function's own parameter shadows a module-level alias of the same name");
+
+  // (b) an alias declared INSIDE one function must not leak into evaluating a different,
+  // unrelated function in the same file.
+  const leakSources: SourceFile[] = [{
+    path: "leak.ts",
+    code: [
+      "function helper() { const check = validate; return check(); }",
+      "export function other(check) { exec(cmd); check(); }",
+    ].join("\n"),
+  }];
+  const leakFindings = scan(buildGraph("leak@test", leakSources), leakSources).findings;
+  assert.ok(!leakFindings.some((f) => f.id.includes(":" ) && f.title.includes("Input validation")),
+    "an alias declared inside one function does not leak into a sibling function");
+}
+
+console.log("findings.test: alias scoping regression (no cross-function leak, params shadow module aliases) passes");
