@@ -67,3 +67,27 @@ assert.strictEqual(unmapped.length, 0, "nothing unmapped");
 
 console.log(`findings.test: ${findings.length} findings (${byRule("r-").length} weakness-rule, ` +
   `${byRule("c-").length} control), grades honest, static leads cast no blast, adapter maps + bundle valid`);
+
+// Regression: a real-world sink dogfooded against sunwood-ai-labs/github-kanban-mcp-server
+// (a documented command-injection advisory) was invisible because the sink is reached only
+// through `util.promisify(execFile)` rebound to a locally-named helper (`ghAsync`), not a
+// literal `execFile(` call — the exact shape that advisory's own `src/utils/exec.ts` has.
+// `r-unguarded-sink` must now follow a one-hop alias through the rebind.
+{
+  const aliasSources: SourceFile[] = [{
+    path: "alias.ts",
+    code: [
+      "import { execFile } from 'node:child_process';",
+      "import { promisify } from 'node:util';",
+      "const execFileAsync = promisify(execFile);",
+      "export async function ghAsync(args) { return await execFileAsync('gh', args); }", // weakness: aliased sink
+      "export async function handleListIssues(owner, repo) { return await ghAsync(['issue', 'list', '--repo', owner + '/' + repo]); }",
+    ].join("\n"),
+  }];
+  const aliasGraph = buildGraph("alias@test", aliasSources);
+  const { findings: aliasFindings } = scan(aliasGraph, aliasSources);
+  const aliasHit = aliasFindings.filter((f) => f.id.startsWith("r-unguarded-sink") && f.id.endsWith(":" + aliasGraph.nodes.find((n) => n.label === "ghAsync")!.id));
+  assert.strictEqual(aliasHit.length, 1, "r-unguarded-sink follows the promisify(execFile) alias into ghAsync");
+}
+
+console.log("findings.test: sink-alias regression (promisify(execFile) -> ghAsync) passes");

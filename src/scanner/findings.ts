@@ -58,6 +58,51 @@ const callsName = (src: string, rawName: string, freeOnly = false) => {
   return false;
 };
 
+/** File-level sink aliases: `const run = promisify(execFile)` and `const run = execFile;`
+ *  both rebind a sink under a new local name. `callsAny`/`callsNoneOf` match a literal
+ *  call token in the function body, so a renamed/wrapped sink (the Node `util.promisify`
+ *  idiom is common — `writeFileAsync`, `execFileAsync` — and a thin pass-through wrapper is
+ *  really just one more rebinding) is otherwise invisible even though the real sink call is
+ *  still there. Maps alias name -> underlying base name. Best-effort and file-scoped, one
+ *  hop only: only these two direct, un-nested forms are recognized, so this can miss an
+ *  alias but never invents a sink that is not actually called — a rule still requires the
+ *  alias itself to be called in the function body. */
+function sinkAliases(code: string): Map<string, string> {
+  const out = new Map<string, string>();
+  let ast;
+  try { ast = parse(code, { sourceType: "unambiguous", plugins: ["typescript", "jsx", "decorators-legacy"] }); }
+  catch { return out; }
+  const calleeName = (callee: any): string | undefined =>
+    callee?.type === "Identifier" ? callee.name
+      : callee?.type === "MemberExpression" && callee.property?.type === "Identifier" ? callee.property.name
+      : undefined;
+  traverse(ast, {
+    VariableDeclarator(p: any) {
+      const id = p.node.id;
+      const init = p.node.init;
+      if (id?.type !== "Identifier" || !init) return;
+      // const run = promisify(execFile)  /  const run = util.promisify(execFile)
+      if (init.type === "CallExpression" && calleeName(init.callee) === "promisify" &&
+          init.arguments.length === 1 && init.arguments[0].type === "Identifier") {
+        out.set(id.name, init.arguments[0].name);
+        return;
+      }
+      // const run = execFile;  (direct rename/rebind, no call)
+      if (init.type === "Identifier") out.set(id.name, init.name);
+    },
+  });
+  return out;
+}
+
+/** Does `src` call `name(` — or, failing that, a one-hop alias of it per `aliases`
+ *  (`run()` where `const run = promisify(name)`)? Same `freeOnly` semantics as the direct
+ *  check: an aliased sink is still a free/imported call at the alias's own call site. */
+function callsNameOrAlias(src: string, name: string, aliases: Map<string, string>, freeOnly: boolean): boolean {
+  if (callsName(src, name, freeOnly)) return true;
+  for (const [alias, target] of aliases) if (target === name && callsName(src, alias, freeOnly)) return true;
+  return false;
+}
+
 /** Rule conditions on the function's name/text that are not calls. `nameNotMatches`
  *  removes protective names (a redactor is not a secret leak); `textAny` requires one of
  *  the substrings in the body (e.g. a request-input marker). Both are plain, linear-time
@@ -75,7 +120,7 @@ function nameTextOk(when: Rule["when"], fnName: string, body: string): boolean {
  *  pattern match is itself a fabrication, which the grounding invariant forbids. */
 const castsBlast = (g: string) => g === "OBSERVED" || g === "TESTED";
 
-function matches(when: Rule["when"], fnName: string, rawSrc: string, kind: Rule["kind"]): boolean {
+function matches(when: Rule["when"], fnName: string, rawSrc: string, kind: Rule["kind"], aliases: Map<string, string>): boolean {
   // A WEAKNESS rule's positive calls are SINKS: match free/imported calls only, so a
   // method like `re.exec(...)` / `arr.query(...)` can't masquerade as a sink. A CONTROL
   // rule's positive calls are VALIDATORS, which are usually methods (`schema.parse(...)`,
@@ -86,8 +131,8 @@ function matches(when: Rule["when"], fnName: string, rawSrc: string, kind: Rule[
   const freeOnly = kind === "weakness";
   if (when.nameMatches && !compileNameMatcher(when.nameMatches)(fnName)) return false;
   if (!nameTextOk(when, fnName, src)) return false;
-  if (when.callsAny && !when.callsAny.some((n) => callsName(src, n, freeOnly))) return false;
-  if (when.callsNoneOf && when.callsNoneOf.some((n) => callsName(src, n))) return false;        // guards: any call form
+  if (when.callsAny && !when.callsAny.some((n) => callsNameOrAlias(src, n, aliases, freeOnly))) return false;
+  if (when.callsNoneOf && when.callsNoneOf.some((n) => callsNameOrAlias(src, n, aliases, false))) return false; // guards: any call form
   if (when.guardText && when.guardText.some((t) => src.includes(t))) return false;              // keyword-arg guards
   // a rule with only callsNoneOf would match everything — require at least one positive signal
   if (!when.nameMatches && !when.callsAny) return false;
@@ -179,10 +224,15 @@ export function scan(graph: AtlasGraph, sources: SourceFile[], rules: Rule[] = D
     if (!fnSrcCache.has(path)) fnSrcCache.set(path, functionSources(srcByPath.get(path) ?? ""));
     return fnSrcCache.get(path)!;
   };
+  const aliasCache = new Map<string, Map<string, string>>();
+  const fileAliases = (path: string) => {
+    if (!aliasCache.has(path)) aliasCache.set(path, sinkAliases(srcByPath.get(path) ?? ""));
+    return aliasCache.get(path)!;
+  };
   const fnNodes = graph.nodes.filter((n) => n.kind === "function");
   const { findings, usedClasses } = evalRules(graph, fnNodes, rules, (node, rule) => {
     const src = fnSrc(node.evidence.path).get(node.label);
-    return src ? matches(rule.when, node.label, src, rule.kind) : false;
+    return src ? matches(rule.when, node.label, src, rule.kind, fileAliases(node.evidence.path)) : false;
   });
   return { findings, asiSnapshot: asiSnapshotFrom(usedClasses) };
 }
